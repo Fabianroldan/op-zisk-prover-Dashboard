@@ -436,11 +436,28 @@ function App() {
 
   useEffect(() => {
     const unsub = window.proverFeed.subscribe(setSnap);
-    window.proverFeed.startSimulation();
+    // Live feed if window.OPZISK_FEED_URL is set (see index.html); else the mock.
+    const FEED_URL = window.OPZISK_FEED_URL || "";
+    let stop = false, timer = null;
+    if (FEED_URL) {
+      const poll = async () => {
+        try {
+          const data = await (await fetch(FEED_URL, { cache: "no-store" })).json();
+          window.proverFeed.setConnected(data.connected !== false);
+          window.proverFeed.ingest(data);
+        } catch (e) {
+          window.proverFeed.setConnected(false);
+        }
+        if (!stop) timer = setTimeout(poll, 3000);
+      };
+      poll();
+    } else {
+      window.proverFeed.startSimulation();
+    }
     const clk = setInterval(() => setNow(Date.now()), 1000);
     const onHash = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHash);
-    return () => { unsub(); clearInterval(clk); window.removeEventListener("hashchange", onHash); };
+    return () => { stop = true; if (timer) clearTimeout(timer); unsub(); clearInterval(clk); window.removeEventListener("hashchange", onHash); };
   }, []);
 
   const findJob = (id) => {
