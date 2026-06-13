@@ -16,6 +16,30 @@ function parseHash() {
   return { name: "dashboard" };
 }
 
+// ======================= THEME TOGGLE =======================
+function ThemeToggle() {
+  const [dark, setDark] = useState(() => document.documentElement.getAttribute("data-theme") === "dark");
+  const flip = () => {
+    const next = dark ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("opzisk-theme", next); } catch (e) {}
+    setDark(!dark);
+  };
+  return (
+    <button className="sb-item" type="button" title={dark ? "Light mode" : "Dark mode"} onClick={flip}>
+      {dark ? (
+        <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M15 10.2A6.2 6.2 0 1 1 7.8 3a4.8 4.8 0 0 0 7.2 7.2Z" />
+        </svg>
+      ) : (
+        <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <circle cx="9" cy="9" r="3.2" /><path d="M9 1.5v1.8M9 14.7v1.8M1.5 9h1.8M14.7 9h1.8M3.7 3.7l1.3 1.3M13 13l1.3 1.3M3.7 14.3l1.3-1.3M13 5l1.3-1.3" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 // ======================= SIDEBAR =======================
 function Sidebar({ route, snap, onNav }) {
   const items = [
@@ -38,12 +62,10 @@ function Sidebar({ route, snap, onNav }) {
           </a>
         ))}
         <div className="sb-sep"></div>
-        <span className="sb-item" title="Settings">
-          <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="9" cy="9" r="2.4" /><path d="M9 1.5v2M9 14.5v2M1.5 9h2M14.5 9h2M3.8 3.8l1.4 1.4M12.8 12.8l1.4 1.4M3.8 14.2l1.4-1.4M12.8 5.2l1.4-1.4" strokeLinecap="round" /></svg>
-        </span>
-        <span className="sb-item" title="Sign out">
+        <ThemeToggle />
+        <button className="sb-item" type="button" title="Sign out" onClick={() => { if (window.confirm("Sign out and reset the dashboard?")) window.location.reload(); }}>
           <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M7 15.5H3.5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1H7M11.5 12l3-3-3-3M14.5 9H7" /></svg>
-        </span>
+        </button>
       </div>
       <div className="sb-avatar" title="Carlic">C</div>
     </aside>

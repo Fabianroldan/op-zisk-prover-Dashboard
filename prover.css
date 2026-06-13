@@ -55,7 +55,37 @@
   --sh-lg: 0 24px 60px rgba(28,32,22,0.12);
 }
 
+/* ---- DARK theme: override surfaces + ink, keep brand accents ---- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14161a;
+  --bg-2: #0f1115;
+  --card: #1c2026;
+  --card-soft: #22262d;
+  --card-2: #262b32;
+  --line: rgba(255,255,255,0.07);
+  --line-2: rgba(255,255,255,0.13);
+  --track: #2a2f37;
+  --ink: #e8eae5;
+  --t2: #a7aca2;
+  --t3: #797e74;
+  --t4: #545951;
+  --accent-soft: rgba(255,58,75,0.18);
+  --accent-line: rgba(255,58,75,0.42);
+  --dark: #2c323a;
+  --dark-2: #363d46;
+  --zisk-soft: rgba(28,180,120,0.16);
+  --good-soft: rgba(28,180,120,0.16);
+  --coral-soft: rgba(224,57,74,0.18);
+  --amber-soft: rgba(217,152,40,0.16);
+  --sh-sm: 0 1px 2px rgba(0,0,0,0.45);
+  --sh: 0 1px 2px rgba(0,0,0,0.35), 0 10px 26px rgba(0,0,0,0.45);
+  --sh-lg: 0 24px 60px rgba(0,0,0,0.6);
+}
+
 * { box-sizing: border-box; }
+html { transition: background .25s ease; }
+body { transition: background .25s ease, color .25s ease; }
 html, body { margin: 0; padding: 0; }
 body {
   background: var(--bg);
@@ -90,6 +120,8 @@ body {
 .sb-item {
   width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;
   color: var(--t3); cursor: pointer; transition: background .14s, color .14s; text-decoration: none;
+  /* button reset (some sb-items are <button>) */
+  border: none; background: transparent; padding: 0; font: inherit; -webkit-appearance: none; appearance: none;
 }
 .sb-item:hover { background: var(--card-2); color: var(--ink); }
 .sb-item.on { background: var(--dark); color: #fff; box-shadow: 0 6px 16px rgba(43,51,38,0.28); }
