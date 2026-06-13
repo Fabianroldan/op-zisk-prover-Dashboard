@@ -1,0 +1,384 @@
+// ==============================================================
+// OP-ZiSK Prover — app shell + hash router + views.
+// Views: dashboard (live) · blocks (list) · block (detail).
+// Depends on window.PU (util), window.{Sparkline,Timeline,Histogram},
+// and window.proverFeed (data).
+// ==============================================================
+const { useState, useEffect } = React;
+const { pad, fmtClock, fmtSecs, fmtNum, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, FULL, stageStatus } = window.PU;
+const { Sparkline, Timeline, Histogram } = window;
+
+const nav = (hash) => { window.location.hash = hash; };
+function parseHash() {
+  const h = window.location.hash.replace(/^#\/?/, "");
+  if (h.startsWith("block/")) return { name: "block", id: decodeURIComponent(h.slice(6)) };
+  if (h.startsWith("blocks")) return { name: "blocks" };
+  return { name: "dashboard" };
+}
+
+// ======================= SIDEBAR =======================
+function Sidebar({ route, snap, onNav }) {
+  const items = [
+    { key: "dashboard", label: "Live", hash: "#/", icon: <path d="M2 9h3l2-5 3 11 2-6h4" /> },
+    { key: "blocks", label: "Blocks", hash: "#/blocks", icon: <g><rect x="2.5" y="2.5" width="13" height="4" rx="1.4" /><rect x="2.5" y="7.5" width="13" height="4" rx="1.4" /><rect x="2.5" y="12.5" width="13" height="2.8" rx="1.4" /></g> },
+  ];
+  const sun = Array.from({ length: 12 }).map((_, i) => {
+    const ang = (i * 30) * Math.PI / 180, c = 12;
+    return <line key={i} x1={c + 3.6 * Math.cos(ang)} y1={c + 3.6 * Math.sin(ang)} x2={c + 9.2 * Math.cos(ang)} y2={c + 9.2 * Math.sin(ang)} stroke="var(--accent)" strokeWidth="2.1" strokeLinecap="round" />;
+  });
+  return (
+    <aside className="sidebar">
+      <div className="sb-brand" onClick={() => onNav("#/")} title="OP-ZiSK Prover">
+        <span className="brand-mark"><svg width="26" height="26" viewBox="0 0 24 24">{sun}</svg></span>
+      </div>
+      <div className="sb-rail">
+        {items.map((it) => (
+          <a key={it.key} className={"sb-item" + (route.name === it.key ? " on" : "")} title={it.label} href={it.hash} onClick={(e) => { e.preventDefault(); onNav(it.hash); }}>
+            <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{it.icon}</svg>
+          </a>
+        ))}
+        <div className="sb-sep"></div>
+        <span className="sb-item" title="Settings">
+          <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="9" cy="9" r="2.4" /><path d="M9 1.5v2M9 14.5v2M1.5 9h2M14.5 9h2M3.8 3.8l1.4 1.4M12.8 12.8l1.4 1.4M3.8 14.2l1.4-1.4M12.8 5.2l1.4-1.4" strokeLinecap="round" /></svg>
+        </span>
+        <span className="sb-item" title="Sign out">
+          <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M7 15.5H3.5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1H7M11.5 12l3-3-3-3M14.5 9H7" /></svg>
+        </span>
+      </div>
+      <div className="sb-avatar" title="Carlic">C</div>
+    </aside>
+  );
+}
+
+// ======================= TOP BAR (greeting + search) =======================
+function MainBar({ title, sub, snap, now, back }) {
+  const t = new Date(now);
+  return (
+    <div className="apphead">
+      <div className="ah-left">
+        {back && <button className="ah-back" onClick={() => nav(back)}>←</button>}
+        <div>
+          <h1 className="ah-title">{title}</h1>
+          {sub && <div className="ah-sub">{sub}</div>}
+        </div>
+      </div>
+      <div className="ah-right">
+        <div className="search">
+          <span className="s-ico"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="7" cy="7" r="4.5" /><path d="M11 11l3 3" strokeLinecap="round" /></svg></span>
+          <input placeholder="Search ranges, JOB id…" />
+        </div>
+        <span className={"conn-pill" + (snap.connected ? "" : " off")}><span className={"dot" + (snap.connected ? " live" : "")}></span>{snap.connected ? "Live" : "Offline"}</span>
+        <span className="clock">{pad(t.getUTCHours())}<span className="sep">:</span>{pad(t.getUTCMinutes())}<span className="sep">:</span>{pad(t.getUTCSeconds())} UTC</span>
+        <button className="icon-btn" title="Notifications"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2a4 4 0 0 0-4 4c0 4-1.5 5-1.5 5h11S13 10 13 6a4 4 0 0 0-4-4ZM7.5 14.5a1.5 1.5 0 0 0 3 0" /></svg><span className="dotred"></span></button>
+      </div>
+    </div>
+  );
+}
+
+// ======================= METRIC RAIL =======================
+function Rail({ snap }) {
+  const s = snap.stats;
+  return (
+    <div className="rail">
+      <div className="m"><span className="m-l">Proven</span><span className="m-v green">{s.provenToday}<span className="u">jobs</span></span></div>
+      <div className="m"><span className="m-l">Avg prove</span><span className="m-v">{fmtClock(s.avgProveMs)}</span></div>
+      <div className="m"><span className="m-l">p50 / p95</span><span className="m-v">{fmtClock(s.p50Ms)}<span className="u">/ {fmtClock(s.p95Ms)}</span></span></div>
+      <div className="m"><span className="m-l">Throughput</span><span className="m-v green">{s.throughputKgs.toFixed(1)}<span className="u">kgas/s</span></span></div>
+      <div className="m"><span className="m-l">Eligible</span><span className="m-v">{s.dist ? s.dist.greenPct : 0}<span className="u">%</span></span></div>
+      <div className="m"><span className="m-l">L2 head</span><span className="m-v">{fmtBlock(snap.l2Head)}</span></div>
+      <div className="m grow spark"><span className="m-l">Prove time · last {snap.recentDurations.length}</span><Sparkline data={snap.recentDurations} /></div>
+    </div>
+  );
+}
+
+// ======================= CURRENT JOB (hero) =======================
+function CurrentJob({ job }) {
+  if (!job) {
+    return (
+      <div className="hero">
+        <div className="sec"><span className="sec-t">Currently proving</span><span className="rule"></span></div>
+        <div className="hero-card" style={{ cursor: "default" }}><div className="empty">Idle — awaiting next range…</div></div>
+      </div>
+    );
+  }
+  const total = jobTotalMs(job);
+  const pct = Math.min(100, (job.elapsedMs / total) * 100);
+  const ai = Math.min(job.stageIndex, job.stages.length - 1);
+  const active = job.stages[ai];
+  const ss = stageStatus(job, active);
+  return (
+    <div className="hero">
+      <div className="sec"><span className="sec-t">Currently proving</span><span className="sec-c">{job.id}</span><span className="rule"></span><span className="sec-c">stage {Math.min(job.stageIndex + 1, job.stages.length)} / {job.stages.length}</span></div>
+      <div className="hero-card" onClick={() => nav(`#/block/${job.id}`)}>
+        <div className="hero-top">
+          <div>
+            <div className="hero-id">
+              <span className="live-tag"><span className="ld"></span>Proving</span>
+              <span className="jid">{job.host}</span>
+              {job.note === "rpc-throttled" && <span className="flag">⚠ RPC throttled · witness slow</span>}
+            </div>
+            <h1 className="hero-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</h1>
+            <div className="hero-meta">
+              <span className="mi"><b>{job.blocks}</b> blocks</span>
+              <span className="mi"><b>{fmtNum(job.gas)}</b> gas</span>
+              <span className="mi"><b>{fmtBytes(job.proofBytes)}</b> proof</span>
+              <span className="mi"><b>{fmtUSD(jobCost(job))}</b> est. cost</span>
+            </div>
+          </div>
+          <div className="hero-timers">
+            <div className="tmr big"><span className="tl">Elapsed</span><span className="tv">{fmtClock(job.elapsedMs)}</span></div>
+            <div className="tmr"><span className="tl">ETA</span><span className="tv eta">{fmtClock(job.etaMs)}</span></div>
+            <div className="tmr"><span className="tl">Progress</span><span className="tv pct">{Math.round(pct)}%</span></div>
+          </div>
+        </div>
+        <Timeline job={job} />
+        <div className="callout">
+          <span className="play">▶</span>
+          <span className="cstage">{FULL[active.key]}</span>
+          <span className="cstatus"><b>{ss.sub}</b></span>
+          <span className="cright">{fmtSecs(active.elapsedMs)} / {fmtSecs(active.durationMs)} · <b>{ss.right}</b></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ======================= shared bits =======================
+function StatusTag({ status }) {
+  const label = { proven: "Proven", failed: "Failed", proving: "Proving", queued: "Queued" }[status];
+  return <span className={"tag " + status}><span className="td"></span>{label}</span>;
+}
+function MiniStrip({ job }) {
+  return <span className="strip">{job.stages.map((st, i) => <i key={i} className={st.status === "done" ? "done" : st.status === "active" ? "active" : ""}></i>)}</span>;
+}
+
+// ======================= QUEUE =======================
+function Queue({ queue }) {
+  const totalEta = queue.reduce((s, j) => s + j.etaMs, 0);
+  return (
+    <div className="panel-b">
+      <div className="sec"><span className="sec-t">Queue</span><span className="sec-c">{queue.length}</span><span className="rule"></span><span className="sec-c">pending</span></div>
+      {queue.length === 0 && <div className="empty">Queue empty</div>}
+      {queue.map((job, i) => (
+        <div key={job.id} className="qrow" onClick={() => nav(`#/block/${job.id}`)}>
+          <span className="qpos">{pad(i + 1)}</span>
+          <div>
+            <div className="q-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</div>
+            <div className="q-sub">{job.id} · {job.blocks} blk · {job.host}</div>
+          </div>
+          <div className="q-right"><StatusTag status="queued" /><span className="q-eta">~{fmtClock(job.etaMs)}</span></div>
+        </div>
+      ))}
+      <div className="qdepth"><span className="ql">Backlog depth</span><span className="qv">{queue.reduce((s, j) => s + j.blocks, 0)} blocks · ~{fmtClock(totalEta)}</span></div>
+    </div>
+  );
+}
+
+// ======================= DASHBOARD =======================
+const STREAM_COLS = "1.5fr 0.55fr 1fr 0.8fr 0.85fr";
+function StreamTable({ history }) {
+  const rows = history.slice(0, 8);
+  return (
+    <div className="panel-b">
+      <div className="sec"><span className="sec-t">Proving stream</span><span className="sec-c">live</span><span className="rule"></span><a className="sec-link" href="#/blocks" onClick={(e) => { e.preventDefault(); nav("#/blocks"); }}>all blocks →</a></div>
+      <div className="tbl-h" style={{ gridTemplateColumns: STREAM_COLS }}>
+        <span>Range</span><span className="r">Blocks</span><span>Pipeline</span><span className="r">Proof time</span><span className="r">Status</span>
+      </div>
+      {rows.map((job) => (
+        <div key={job.id} className="row" style={{ gridTemplateColumns: STREAM_COLS }} onClick={() => nav(`#/block/${job.id}`)}>
+          <div>
+            <div className="c-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</div>
+            <div className="c-id">{job.id} · {timeAgo(job.finishedAt)}</div>
+          </div>
+          <div className="c-blk">{job.blocks}</div>
+          <MiniStrip job={job} />
+          <div className="c-time">{fmtClock(job.elapsedMs)}</div>
+          <div style={{ textAlign: "right" }}><StatusTag status={job.status} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Dashboard({ snap, now }) {
+  return (
+    <div className="view">
+      <MainBar title="Live" sub="real-time OP range proving" snap={snap} now={now} />
+      <Rail snap={snap} />
+      <CurrentJob job={snap.active} />
+      <div className="dash-grid">
+        <div className="panel-b">
+          <div className="sec"><span className="sec-t">Proof-time distribution</span><span className="rule"></span><span className="sec-c">last {snap.recentDurations.length}</span></div>
+          <Histogram dist={snap.stats.dist} />
+        </div>
+        <Queue queue={snap.queue} />
+      </div>
+      <StreamTable history={snap.history} />
+    </div>
+  );
+}
+
+// ======================= BLOCKS PAGE =======================
+const BLOCKS_COLS = "1.25fr 0.5fr 1fr 0.9fr 0.8fr 0.7fr 0.7fr 0.8fr 0.7fr";
+function BlocksPage({ snap, now }) {
+  const [filter, setFilter] = useState("all");
+  const all = snap.history;
+  const list = all.filter((j) => filter === "all" ? true : j.status === filter);
+  const s = snap.stats;
+  return (
+    <div className="view">
+      <MainBar title="Blocks" sub="every proven & failed OP range" snap={snap} now={now} />
+      <div className="rail">
+        <div className="m"><span className="m-l">Total ranges</span><span className="m-v">{all.length}</span></div>
+        <div className="m"><span className="m-l">Eligible rate</span><span className="m-v green">{s.dist ? s.dist.greenPct : 0}<span className="u">%</span></span></div>
+        <div className="m"><span className="m-l">Avg prove</span><span className="m-v">{fmtClock(s.avgProveMs)}</span></div>
+        <div className="m"><span className="m-l">p95</span><span className="m-v">{fmtClock(s.p95Ms)}</span></div>
+        <div className="m"><span className="m-l">Failed</span><span className="m-v red">{s.dist ? s.dist.failed : 0}</span></div>
+        <div className="m grow"><span className="m-l">Throughput</span><span className="m-v">{s.throughputKgs.toFixed(1)}<span className="u">kgas/s</span></span></div>
+      </div>
+
+      <div className="filters">
+        {["all", "proven", "failed"].map((f) => (
+          <button key={f} className={"chip" + (filter === f ? " on" : "")} onClick={() => setFilter(f)}>
+            {f === "all" ? "All" : f === "proven" ? "Proven" : "Failed"}
+            <span className="chip-n">{f === "all" ? all.length : all.filter((j) => j.status === f).length}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="panel-b">
+        <div className="tbl-h" style={{ gridTemplateColumns: BLOCKS_COLS }}>
+          <span>Range</span><span className="r">Blocks</span><span>Cluster</span><span className="r">Gas</span><span className="r">Proof time</span><span className="r">Cost</span><span className="r">Size</span><span className="r">Status</span><span className="r">When</span>
+        </div>
+        <div className="tbl-scroll">
+          {list.map((job) => (
+            <div key={job.id} className="row" style={{ gridTemplateColumns: BLOCKS_COLS }} onClick={() => nav(`#/block/${job.id}`)}>
+              <div>
+                <div className="c-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</div>
+                <div className="c-id">{job.id}</div>
+              </div>
+              <div className="c-blk">{job.blocks}</div>
+              <div className="c-cluster">{job.host}</div>
+              <div className="c-gas">{fmtNum(job.gas)}</div>
+              <div className="c-time">{fmtClock(job.elapsedMs)}</div>
+              <div className="c-cost">{fmtUSD(jobCost(job))}</div>
+              <div className="c-size">{fmtBytes(job.proofBytes)}</div>
+              <div style={{ textAlign: "right" }}><StatusTag status={job.status} /></div>
+              <div className="c-when">{timeAgo(job.finishedAt)}</div>
+            </div>
+          ))}
+          {list.length === 0 && <div className="empty">No {filter} ranges</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ======================= BLOCK DETAIL =======================
+function BlockDetail({ job, snap, now }) {
+  if (!job) {
+    return (
+      <div className="view">
+        <MainBar title="Block not found" snap={snap} now={now} back="#/blocks" />
+        <div className="panel-b"><div className="empty">This range is no longer in the live window.</div></div>
+      </div>
+    );
+  }
+  const total = jobTotalMs(job);
+  const done = job.status === "proven" || job.status === "failed";
+  const instances = Math.max(1, Math.round(job.blocks * 9));
+  const throughput = job.elapsedMs ? (job.gas / (job.elapsedMs / 1000)) / 1000 : 0;
+  return (
+    <div className="view">
+      <MainBar title={`${fmtBlock(job.rangeStart)} → ${fmtBlock(job.rangeEnd)}`} sub={`${job.id} · ${job.chain}`} snap={snap} now={now} back="#/blocks" />
+
+      <div className="det-head">
+        <StatusTag status={job.status} />
+        <span className="det-meta"><b>{job.blocks}</b> blocks</span>
+        <span className="det-meta">cluster <b>{job.host}</b></span>
+        <span className="det-meta">{done ? `finished ${timeAgo(job.finishedAt)}` : job.status === "proving" ? "in progress" : "queued"}</span>
+        {job.note === "rpc-throttled" && <span className="flag">⚠ RPC throttled</span>}
+      </div>
+
+      <div className="mgrid det-grid">
+        <div className="mcell"><div className="ml">Proof time</div><div className="mv red">{fmtClock(job.elapsedMs)}</div></div>
+        <div className="mcell"><div className="ml">{done ? "Total" : "ETA"}</div><div className="mv">{fmtClock(done ? job.elapsedMs : job.etaMs)}</div></div>
+        <div className="mcell"><div className="ml">Gas proved</div><div className="mv">{fmtNum(job.gas)}</div></div>
+        <div className="mcell"><div className="ml">Proof size</div><div className="mv">{fmtBytes(job.proofBytes)}</div></div>
+        <div className="mcell"><div className="ml">Cost</div><div className="mv">{fmtUSD(jobCost(job))}</div></div>
+        <div className="mcell"><div className="ml">Throughput</div><div className="mv">{throughput.toFixed(1)} <span style={{ fontSize: 11, color: "var(--t3)" }}>kgas/s</span></div></div>
+        <div className="mcell"><div className="ml">Inner instances</div><div className="mv">{instances}</div></div>
+        <div className="mcell"><div className="ml">Blocks</div><div className="mv">{job.blocks}</div></div>
+      </div>
+
+      <div className="panel-b" style={{ marginTop: 22 }}>
+        <div className="sec"><span className="sec-t">Pipeline timeline</span><span className="rule"></span><span className="sec-c">{job.stageIndex} / {job.stages.length} stages</span></div>
+        <Timeline job={job} />
+      </div>
+
+      <div className="panel-b" style={{ marginTop: 22 }}>
+        <div className="mst">
+          <div className="mst-h"><span></span><span>Stage</span><span>Detail</span><span className="r">Duration</span><span className="r">State</span></div>
+          {job.stages.map((st) => {
+            const cls = st.status === "done" ? "done" : st.status === "active" ? "active" : "pending";
+            const pct = st.durationMs ? Math.min(100, (st.elapsedMs / st.durationMs) * 100) : 0;
+            const ss = stageStatus(job, st);
+            const stateTxt = cls === "done" ? "Done" : cls === "active" ? `${Math.round(pct)}%` : "Pending";
+            return (
+              <div key={st.key} className={"mstr " + cls}>
+                <span className="si"></span>
+                <span className="sn">{FULL[st.key]}</span>
+                {cls === "pending"
+                  ? <span style={{ fontSize: 11.5, color: "var(--t3)", fontFamily: "var(--mono)" }}>{ss.sub}</span>
+                  : <div className="sbar"><i style={{ width: pct + "%" }}></i></div>}
+                <span className="sd">{cls === "pending" ? `~${fmtSecs(st.durationMs)}` : fmtSecs(cls === "done" ? st.durationMs : st.elapsedMs)}</span>
+                <span className="ss">{stateTxt}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="txrow" style={{ marginTop: 22 }}>
+        <span className="txl">Settlement</span>
+        <span className="txh">{job.txHash ? shortHash(job.txHash) : (job.status === "failed" ? "— failed before settlement" : "— pending")}</span>
+        {job.txHash && <span className="txb">View on explorer ↗</span>}
+      </div>
+    </div>
+  );
+}
+
+// ======================= APP =======================
+function App() {
+  const [snap, setSnap] = useState(() => window.proverFeed.snapshot());
+  const [now, setNow] = useState(Date.now());
+  const [route, setRoute] = useState(parseHash());
+
+  useEffect(() => {
+    const unsub = window.proverFeed.subscribe(setSnap);
+    window.proverFeed.startSimulation();
+    const clk = setInterval(() => setNow(Date.now()), 1000);
+    const onHash = () => setRoute(parseHash());
+    window.addEventListener("hashchange", onHash);
+    return () => { unsub(); clearInterval(clk); window.removeEventListener("hashchange", onHash); };
+  }, []);
+
+  const findJob = (id) => {
+    if (snap.active && snap.active.id === id) return snap.active;
+    return snap.queue.find((j) => j.id === id) || snap.history.find((j) => j.id === id) || null;
+  };
+
+  let content;
+  if (route.name === "blocks") content = <BlocksPage snap={snap} now={now} />;
+  else if (route.name === "block") content = <BlockDetail job={findJob(route.id)} snap={snap} now={now} />;
+  else content = <Dashboard snap={snap} now={now} />;
+
+  return (
+    <div className="shell">
+      <Sidebar route={route} snap={snap} onNav={nav} />
+      <main className="main">{content}</main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
