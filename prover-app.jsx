@@ -280,20 +280,48 @@ function StreamTable({ history }) {
   );
 }
 
+// ======================= CLUSTER (live worker roster) =======================
+function Cluster({ cluster }) {
+  const ws = cluster.workers || [];
+  return (
+    <div className="panel-b">
+      <div className="sec"><span className="sec-t">Cluster</span><span className="sec-c">{cluster.workersConnected}</span><span className="rule"></span><span className="sec-c">workers · {cluster.activeJobs} active</span></div>
+      {ws.length === 0 && <div className="empty">No worker job records</div>}
+      {ws.map((w) => {
+        const total = (w.success || 0) + (w.failure || 0);
+        const pct = total ? Math.round((w.success / total) * 100) : 0;
+        return (
+          <div key={w.id} className="qrow" style={{ cursor: "default" }}>
+            <span className="qpos">W{w.id}</span>
+            <div>
+              <div className="q-range">worker {w.id}</div>
+              <div className="q-sub">{w.success} ok · {w.failure} fail</div>
+            </div>
+            <div className="q-right"><span className="q-eta">{pct}% ok</span></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Dashboard({ snap, now }) {
+  const live = !!snap.cluster;
   return (
     <div className="view">
-      <MainBar title="Live" sub="real-time OP range proving" snap={snap} now={now} />
+      <MainBar title="Live" sub={snap.source || "real-time OP range proving"} snap={snap} now={now} />
       <Rail snap={snap} />
       <CurrentJob job={snap.active} />
       <div className="dash-grid">
         <div className="panel-b">
-          <div className="sec"><span className="sec-t">Proof-time distribution</span><span className="rule"></span><span className="sec-c">last {snap.recentDurations.length}</span></div>
+          <div className="sec"><span className="sec-t">Proof-time distribution</span><span className="rule"></span><span className="sec-c">{snap.stats.dist ? snap.stats.dist.total : 0} proven</span></div>
           <Histogram dist={snap.stats.dist} />
         </div>
-        <Queue queue={snap.queue} />
+        {live ? <Cluster cluster={snap.cluster} /> : <Queue queue={snap.queue} />}
       </div>
-      <StreamTable history={snap.history} />
+      {live && snap.history.length === 0
+        ? <div className="panel-b"><div className="sec"><span className="sec-t">Proving stream</span><span className="rule"></span></div><div className="empty">Coordinator 1.0.0-beta exposes aggregate metrics only — no per-range rows. Per-job stream needs the /api/v1 build or Postgres history.</div></div>
+        : <StreamTable history={snap.history} />}
     </div>
   );
 }

@@ -147,6 +147,8 @@
         history: this.history.slice(),
         recentDurations: this.recentDurations.slice(-44),
         stats: this.stats,
+        cluster: this.cluster || null,   // worker roster (live feed only)
+        source: this.source || null,     // data-source label (live feed only)
       };
     }
 
@@ -154,7 +156,9 @@
     setConnected(v) { this.connected = v; this._emit(); }
     ingest(snapshotPatch) {
       Object.assign(this, snapshotPatch);
-      this._recomputeStats();
+      // A feed that supplies its own `stats` (e.g. aggregate /metrics) keeps them;
+      // otherwise derive stats from history + recentDurations.
+      if (!snapshotPatch.stats) this._recomputeStats();
       this._emit();
     }
 

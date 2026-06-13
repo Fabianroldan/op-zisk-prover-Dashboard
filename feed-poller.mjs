@@ -233,8 +233,112 @@ function selftest() {
   console.log(JSON.stringify(snapshotFrom(sample), null, 2));
 }
 
+// ==============================================================
+// METRICS MODE — for coordinator builds that only expose /metrics (no
+// /api/v1 JSON, e.g. 1.0.0-beta). Parses prometheus text into a snapshot
+// with REAL aggregate stats + duration distribution + worker roster.
+// Per-job tables stay empty (this build has no per-job rows to give).
+//   ssh box 'curl -s localhost:9090/metrics' | node feed-poller.mjs --metrics-stdin
+//   node feed-poller.mjs --metrics            # fetch COORD_URL/metrics itself
+// ==============================================================
+function parsePromLines(text) {
+  const out = [];
+  for (const line of text.split("\n")) {
+    if (!line || line.startsWith("#")) continue;
+    const m = line.match(/^([a-zA-Z_:][\w:]*)(\{([^}]*)\})?\s+([-\d.eE+]+)$/);
+    if (!m) continue;
+    const labels = {};
+    if (m[3]) for (const kv of m[3].split(",")) {
+      const i = kv.indexOf("=");
+      if (i > 0) labels[kv.slice(0, i).trim()] = kv.slice(i + 1).trim().replace(/^"|"$/g, "");
+    }
+    out.push({ name: m[1], labels, value: Number(m[4]) });
+  }
+  return out;
+}
+
+function snapshotFromPrometheus(text) {
+  const rows = parsePromLines(text);
+  const sel = (name, lf) => rows.filter((r) => r.name === name && (!lf || Object.entries(lf).every(([k, v]) => r.labels[k] === v)));
+  const val = (name, lf) => { const r = sel(name, lf)[0]; return r ? r.value : 0; };
+
+  const proven = val("coordinator_jobs_total", { outcome: "success" });
+  const failed = val("coordinator_jobs_total", { outcome: "failure" });
+  const workersConnected = val("coordinator_workers_connected");
+  const activeJobs = val("coordinator_active_jobs");
+
+  const durSum = val("coordinator_job_duration_seconds_sum", { outcome: "success" });
+  const durCount = val("coordinator_job_duration_seconds_count", { outcome: "success" });
+  const avgMs = durCount > 0 ? (durSum / durCount) * 1000 : 0;
+
+  // cumulative histogram buckets -> per-bucket counts (success durations)
+  const buckets = sel("coordinator_job_duration_seconds_bucket", { outcome: "success" })
+    .map((r) => ({ le: r.labels.le === "+Inf" ? Infinity : Number(r.labels.le), c: r.value }))
+    .sort((a, b) => a.le - b.le);
+  const hist = [];
+  let prevLe = 0, prevC = 0;
+  for (const b of buckets) {
+    const count = b.c - prevC;
+    if (b.le !== Infinity) hist.push({ lo: prevLe, hi: b.le, count, band: "green" });
+    prevLe = b.le === Infinity ? prevLe : b.le; prevC = b.c;
+  }
+  // approximate per-job durations from non-empty buckets (midpoint), for sparkline
+  const recentDurations = [];
+  for (const b of hist) for (let i = 0; i < b.count; i++) recentDurations.push(((b.lo + b.hi) / 2) * 1000);
+
+  const total = proven; // distribution is over successful proofs
+  const target = avgMs ? Math.round(avgMs / 1000) : 300;
+  for (const b of hist) b.band = (b.lo + b.hi) / 2 <= target ? "green" : "red";
+  const green = hist.filter((b) => (b.lo + b.hi) / 2 <= target).reduce((a, b) => a + b.count, 0);
+  const dist = { target, total, green, yellow: total - green, failed, greenPct: total ? Math.round((green / total) * 100) : 0, hist };
+
+  // worker roster (real, per-worker outcomes)
+  const wmap = {};
+  for (const r of sel("coordinator_worker_jobs_total")) {
+    const id = r.labels.worker_id || "?";
+    wmap[id] = wmap[id] || { id, success: 0, failure: 0 };
+    wmap[id][r.labels.outcome] = (wmap[id][r.labels.outcome] || 0) + r.value;
+  }
+  const workers = Object.values(wmap).sort((a, b) => Number(a.id) - Number(b.id));
+
+  const stats = {
+    provenToday: proven,
+    avgProveMs: avgMs,
+    successRate: proven + failed ? Math.round((proven / (proven + failed)) * 100) : 0,
+    throughputKgs: 0,
+    p50Ms: avgMs, p95Ms: hist.length ? hist[hist.length - 1].hi * 1000 : avgMs,
+    dist,
+  };
+
+  return {
+    connected: true, chain: CHAIN, l1Head: 0, l2Head: 0,
+    active: null, queue: [], history: [], recentDurations,
+    failedCount: failed,
+    stats, // supplied directly -> client skips recompute
+    cluster: { workersConnected, activeJobs, workers },
+    source: "coordinator/metrics (1.0.0-beta — aggregate only)",
+  };
+}
+
+async function tickMetrics(text) {
+  const snap = snapshotFromPrometheus(text);
+  await writeFile(OUT, JSON.stringify(snap));
+  console.log(`[${new Date().toISOString()}] metrics ok proven=${snap.stats.provenToday} failed=${snap.failedCount} workers=${snap.cluster.workersConnected} avg=${Math.round(snap.stats.avgProveMs)}ms -> ${OUT}`);
+  if (PUSH_CMD) exec(PUSH_CMD, (err) => { if (err) console.error("push failed:", err.message); });
+}
+
 const arg = process.argv[2];
 if (arg === "--selftest") { selftest(); }
+else if (arg === "--metrics-stdin") {
+  let s = ""; process.stdin.on("data", (d) => s += d).on("end", () => tickMetrics(s));
+}
+else if (arg === "--metrics") {
+  const run = async () => {
+    const res = await fetch(`${COORD_URL}/metrics`, { headers: AUTH, cache: "no-store" });
+    await tickMetrics(await res.text());
+  };
+  run(); if (!process.argv.includes("--once")) setInterval(run, INTERVAL_MS);
+}
 else if (arg === "--once") { tick(); }
 else {
   console.log(`feed-poller -> ${COORD_URL}  out=${OUT}  every ${INTERVAL_MS}ms`);
