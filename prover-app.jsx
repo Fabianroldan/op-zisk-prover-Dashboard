@@ -72,6 +72,67 @@ function Sidebar({ route, snap, onNav }) {
   );
 }
 
+// ======================= SEARCH (job id · block · host) =======================
+function Search({ snap }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+
+  const all = [];
+  if (snap.active) all.push(snap.active);
+  snap.queue.forEach((j) => all.push(j));
+  snap.history.forEach((j) => all.push(j));
+
+  const query = q.trim().toLowerCase();
+  const num = parseInt(query.replace(/[^0-9]/g, ""), 10);
+  const results = !query ? [] : all.filter((j) => {
+    if (j.id.toLowerCase().includes(query)) return true;
+    if (j.host.toLowerCase().includes(query)) return true;
+    if (!isNaN(num) && num >= j.rangeStart && num <= j.rangeEnd) return true;
+    if (String(j.rangeStart).includes(query) || String(j.rangeEnd).includes(query)) return true;
+    return false;
+  }).slice(0, 7);
+
+  const go = (job) => { if (!job) return; setQ(""); setOpen(false); nav(`#/block/${job.id}`); };
+  const onKey = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, results.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter") { go(results[hi]); }
+    else if (e.key === "Escape") { setOpen(false); }
+  };
+
+  return (
+    <div className="search-wrap">
+      <div className="search">
+        <span className="s-ico"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="7" cy="7" r="4.5" /><path d="M11 11l3 3" strokeLinecap="round" /></svg></span>
+        <input
+          placeholder="Search ranges, JOB id…"
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setOpen(true); setHi(0); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 140)}
+          onKeyDown={onKey}
+        />
+      </div>
+      {open && query && (
+        <div className="search-pop">
+          {results.length === 0 && <div className="sp-empty">No match for “{q}”</div>}
+          {results.map((j, i) => (
+            <div key={j.id} className={"sp-row" + (i === hi ? " on" : "")} onMouseDown={() => go(j)} onMouseEnter={() => setHi(i)}>
+              <span className={"sp-dot " + j.status}></span>
+              <div className="sp-main">
+                <div className="sp-range">{fmtBlock(j.rangeStart)}<span className="arw">→</span>{fmtBlock(j.rangeEnd)}</div>
+                <div className="sp-sub">{j.id} · {j.blocks} blk · {j.host}</div>
+              </div>
+              <span className="sp-tag">{j.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ======================= TOP BAR (greeting + search) =======================
 function MainBar({ title, sub, snap, now, back }) {
   const t = new Date(now);
@@ -85,10 +146,7 @@ function MainBar({ title, sub, snap, now, back }) {
         </div>
       </div>
       <div className="ah-right">
-        <div className="search">
-          <span className="s-ico"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="7" cy="7" r="4.5" /><path d="M11 11l3 3" strokeLinecap="round" /></svg></span>
-          <input placeholder="Search ranges, JOB id…" />
-        </div>
+        <Search snap={snap} />
         <span className={"conn-pill" + (snap.connected ? "" : " off")}><span className={"dot" + (snap.connected ? " live" : "")}></span>{snap.connected ? "Live" : "Offline"}</span>
         <span className="clock">{pad(t.getUTCHours())}<span className="sep">:</span>{pad(t.getUTCMinutes())}<span className="sep">:</span>{pad(t.getUTCSeconds())} UTC</span>
         <button className="icon-btn" title="Notifications"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2a4 4 0 0 0-4 4c0 4-1.5 5-1.5 5h11S13 10 13 6a4 4 0 0 0-4-4ZM7.5 14.5a1.5 1.5 0 0 0 3 0" /></svg><span className="dotred"></span></button>
