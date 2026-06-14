@@ -42,15 +42,19 @@
   }
   function jobTotalMs(job) { return job.stages.reduce((s, x) => s + x.durationMs, 0); }
 
-  const SHORT = { witness: "Witness", prove: "Range STARK", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", agg: "Agg", snark: "SNARK", settle: "Settle" };
-  const FULL = { witness: "Witness gen", prove: "Range STARK proof", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", agg: "Aggregation", snark: "Final SNARK", settle: "On-chain settle" };
+  const SHORT = { witness: "Witness", setup: "Setup", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", prove: "Range STARK" };
+  const FULL = { witness: "Witness gen", setup: "Prover setup", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", prove: "Range STARK proof" };
+  const SUBS = {
+    witness: "kona host · preimage gen",
+    setup: "proofman · const pols/trees + ROM",
+    execute: "cargo-zisk · ASM execute",
+    contrib: "cargo-zisk · calculating contributions",
+    inner: "cargo-zisk · inner STARK proofs",
+    prove: "cargo-zisk · range STARK (VadcopFinalMinimal)",
+  };
 
   function stageStatus(job, st) {
-    switch (st.key) {
-      case "witness": return { sub: `kona host · preimage gen`, right: st.durationMs ? fmtClock(st.durationMs) : "" };
-      case "prove": return { sub: `cargo-zisk · range STARK (VadcopFinalMinimal)`, right: st.durationMs ? fmtClock(st.durationMs) : "" };
-      default: return { sub: "", right: "" };
-    }
+    return { sub: SUBS[st.key] || "", right: st.durationMs ? fmtClock(st.durationMs) : "" };
   }
 
   window.PU = { pad, fmtClock, fmtSecs, fmtNum, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, SHORT, FULL, stageStatus };
