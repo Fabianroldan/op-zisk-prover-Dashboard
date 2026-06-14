@@ -15,13 +15,17 @@ const PHASEDIR = path.join(__dirname, "phases"); try { fs.mkdirSync(PHASEDIR); }
 // persist real per-phase durations as we observe the live run, so finished blocks
 // keep honest timing even when the run wrote no log file and its pane scrolls away.
 const scPath = (s, e) => path.join(PHASEDIR, `${s}-${e}.json`);
-function mergeSidecar(s, e, stages) {
-  let prev = {}; try { prev = JSON.parse(fs.readFileSync(scPath(s, e), "utf8")); } catch {}
-  const out = { ...prev };
-  stages.forEach(st => { if (st.durationMs > 0) out[st.key] = Math.max(out[st.key] || 0, st.durationMs); });
-  try { fs.writeFileSync(scPath(s, e), JSON.stringify(out)); } catch {}
+function readSidecar(s, e) {
+  try { const r = JSON.parse(fs.readFileSync(scPath(s, e), "utf8"));
+    return (r.phases || r.stats) ? { phases: r.phases || {}, stats: r.stats || {} } : { phases: r, stats: {} };
+  } catch { return null; }
 }
-function readSidecar(s, e) { try { return JSON.parse(fs.readFileSync(scPath(s, e), "utf8")); } catch { return null; } }
+function mergeSidecar(s, e, stages, stats) {
+  const prev = readSidecar(s, e) || { phases: {}, stats: {} };
+  stages.forEach(st => { if (st.durationMs > 0) prev.phases[st.key] = Math.max(prev.phases[st.key] || 0, st.durationMs); });
+  if (stats) Object.assign(prev.stats, stats);
+  try { fs.writeFileSync(scPath(s, e), JSON.stringify(prev)); } catch {}
+}
 
 // Append-only durable ledger: one frozen record per completed block, written once.
 // This is the source of truth for history — survives proof-file cleanup, pane scroll,
@@ -73,6 +77,16 @@ function parsePhases(txt, forceAllDone) {
 }
 const stageIndexOf = (stages) => stages.filter(s => s.status === "done").length;
 
+// The prover emits an ExecutionStats { ... } struct (in the execute log / live pane) with
+// the authoritative gas/steps/tx accounting for exactly what it proved. Parse it verbatim.
+function parseStats(txt) {
+  const m = txt.replace(/\x1b\[[0-9;]*m/g, "").match(/ExecutionStats \{([^}]*)\}/);
+  if (!m) return null;
+  const o = {};
+  for (const mm of m[1].matchAll(/(\w+):\s*(\d+)/g)) o[mm[1]] = +mm[2];
+  return Object.keys(o).length ? o : null;
+}
+
 function provingStatus() {
   const ps = sh("ps -eo args");
   if (/release\/multi --start/.test(ps)) return "proving";
@@ -85,7 +99,7 @@ function provingStatus() {
 function smokePane() {
   for (const s of sh("tmux ls -F '#{session_name}'").split("\n").filter(Boolean)) {
     if (s === "dash" || s === "dashsrv") continue;
-    const pane = sh(`tmux capture-pane -t ${s} -p -S -500`);
+    const pane = sh(`tmux capture-pane -t ${s} -p -S -3000`);  // deep scrollback: keep early ExecutionStats line
     if (/multi --start \d+ --end \d+|>>> (EXECUTE|CALCULATING_CONTRIBUTIONS|GENERATING)/.test(pane)) return pane;
   }
   return "";
@@ -103,36 +117,68 @@ function proven() {
       let log=""; for(const suf of["execute","prove"]){try{log+=fs.readFileSync(path.join(LOGS,`multi-${s}-${e}-${suf}.log`),"utf8")}catch{}}
       const stages = parsePhases(log, true);             // durations from log if present
       const sc = readSidecar(s, e);                       // else from live-captured sidecar
-      if (sc) stages.forEach(x => { if (!x.durationMs && sc[x.key]) x.durationMs = sc[x.key]; });
+      const scP = sc ? sc.phases : {}, scS = sc ? sc.stats : {};
+      stages.forEach(x => { if (!x.durationMs && scP[x.key]) x.durationMs = scP[x.key]; });
+      const stats = parseStats(log) || scS || {};
       const phases = {}; stages.forEach(x => phases[x.key] = x.durationMs);
-      const rec = { s, e, blocks: e-s, host: HOST, proofBytes: st.size, phases,
-        totalMs: stages.reduce((a,x)=>a+x.durationMs,0), finishedAt: st.mtimeMs };
+      const rec = { s, e, blocks: stats.nb_blocks || (e-s), host: HOST, proofBytes: st.size, phases,
+        totalMs: stages.reduce((a,x)=>a+x.durationMs,0),
+        gas: stats.eth_gas_used || 0, steps: stats.total_instruction_count || 0,
+        txs: stats.nb_transactions || 0, witnessSec: stats.witness_generation_time_sec || 0,
+        execSec: stats.total_execution_time_sec || 0, finishedAt: st.mtimeMs };
       appendLedger(rec); ledger.set(k, rec);
     } }
-  // history = ledger (durable), newest first
-  return [...ledger.values()].sort((a,b)=>b.finishedAt-a.finishedAt).slice(0,60).map(r => {
+  const recs = [...ledger.values()];
+  const history = recs.sort((a,b)=>b.finishedAt-a.finishedAt).slice(0,60).map(r => {
     const stages = PIPE.map(p => ({ key:p[0], name:p[1], status:"done",
       durationMs:(r.phases&&r.phases[p[0]])||0, elapsedMs:(r.phases&&r.phases[p[0]])||0 }));
     return { id:"B-"+r.s, rangeStart:r.s, rangeEnd:r.e, blocks:r.blocks, host:r.host||HOST, status:"proven",
-      stageIndex:stages.length, stages, gas:0, proofBytes:r.proofBytes, txHash:null,
-      startedAt:r.finishedAt-(r.totalMs||0), finishedAt:r.finishedAt, elapsedMs:r.totalMs||0,
-      etaMs:0, note:"range-proof-only", _mt:r.finishedAt, _dur:r.totalMs||0 };
+      stageIndex:stages.length, stages, gas:r.gas||0, steps:r.steps||0, txs:r.txs||0,
+      proofBytes:r.proofBytes, txHash:null, startedAt:r.finishedAt-(r.totalMs||0), finishedAt:r.finishedAt,
+      elapsedMs:r.totalMs||0, etaMs:0, note:"range-proof-only", _mt:r.finishedAt, _dur:r.totalMs||0 };
   });
+  return { history, metrics: computeMetrics(recs) };
+}
+
+// aggregates over the durable ledger — averaged ONLY over records that actually carry the
+// datum (so missing-data blocks don't drag an average to zero). agg = n/a (not run here).
+const avg = (a) => a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0;
+const sum = (a) => a.reduce((x,y)=>x+y,0);
+function computeMetrics(recs) {
+  const gas = recs.filter(r=>r.gas>0), steps = recs.filter(r=>r.steps>0);
+  const wit = recs.map(r=>r.phases&&r.phases.witness||0).filter(x=>x>0);
+  const prov = recs.filter(r=>r.totalMs>0).map(r=>r.totalMs-((r.phases&&r.phases.witness)||0)).filter(x=>x>0);
+  const tot = recs.map(r=>r.totalMs||0).filter(x=>x>0);
+  const sz = recs.map(r=>r.proofBytes||0).filter(x=>x>0);
+  const tb = sum(gas.map(r=>r.blocks)), tbS = sum(steps.map(r=>r.blocks));
+  return {
+    blocksProven: sum(recs.map(r=>r.blocks)), rangesProven: recs.length,
+    avgRangeBlocks: avg(recs.map(r=>r.blocks)),
+    totalGas: sum(recs.map(r=>r.gas||0)), avgGasPerBlock: tb ? sum(gas.map(r=>r.gas))/tb : 0,
+    totalSteps: sum(recs.map(r=>r.steps||0)), avgStepsPerBlock: tbS ? sum(steps.map(r=>r.steps))/tbS : 0,
+    avgWitnessMs: avg(wit), avgProveMs: avg(prov), avgTotalMs: avg(tot), avgProofBytes: avg(sz),
+    measuredCount: tot.length, gasCount: gas.length,
+    agg: null, aggNote: "aggregation not run on this host (range-proof only)",
+  };
 }
 
 function activeJob() {
   const m = sh("ps -eo args").match(/release\/multi --start (\d+) --end (\d+)/); if (!m) return null;
   const s=+m[1], e=+m[2];
-  const stages = parsePhases(smokePane(), false);
-  mergeSidecar(s, e, stages);                            // snapshot live durations so they survive to history
+  const pane = smokePane();
+  const stages = parsePhases(pane, false);
+  const stats = parseStats(pane);
+  mergeSidecar(s, e, stages, stats);                    // snapshot live durations + stats so they survive to history
   return { id:"B-"+s, rangeStart:s, rangeEnd:e, blocks:e-s, host:HOST, status:"proving",
-    stageIndex: stageIndexOf(stages), stages, gas:0, proofBytes:0, txHash:null,
+    stageIndex: stageIndexOf(stages), stages,
+    gas: stats ? (stats.eth_gas_used||0) : 0, steps: stats ? (stats.total_instruction_count||0) : 0,
+    txs: stats ? (stats.nb_transactions||0) : 0, proofBytes:0, txHash:null,
     startedAt:null, finishedAt:null, elapsedMs: stages.reduce((a,x)=>a+x.durationMs,0), etaMs:0 };
 }
 
 async function cycle() {
   const status = provingStatus();
-  const history = proven();
+  const { history, metrics } = proven();
   const active = status === "proving" ? activeJob() : null;
   const [cid,l1,l2] = await Promise.all([rpc(L2,"eth_chainId"), rpc(L1,"eth_blockNumber"), rpc(L2,"eth_blockNumber")]);
   const recentDurations = history.filter(j=>j._dur>0).map(j=>j._dur);
@@ -140,7 +186,7 @@ async function cycle() {
   history.forEach(j=>{delete j._mt;delete j._dur});
   const snap = { connected: status==="proving", chain: CHAINS[cid]||(cid?"chain "+cid:"unknown"),
     l1Head: l1?parseInt(l1,16):0, l2Head: l2?parseInt(l2,16):0, l2ProvenFrontier: frontier,
-    provingStatus: status, active, queue: [], history, recentDurations, failedCount: 0,
+    provingStatus: status, active, queue: [], history, metrics, recentDurations, failedCount: 0,
     source: `${HOST} — ${status}; ${history.length} range proof(s) (no agg/settle). frontier ${frontier??"none"}, chain head ${l2?parseInt(l2,16):"?"}` };
   fs.writeFileSync(OUT, JSON.stringify(snap));
   const a = active ? `${active.id}@${active.stages[active.stageIndex]?active.stages[active.stageIndex].key:"done"}` : "idle";

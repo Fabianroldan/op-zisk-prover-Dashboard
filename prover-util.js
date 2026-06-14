@@ -15,6 +15,14 @@
     return s >= 100 ? `${Math.round(s)}s` : `${s.toFixed(1)}s`;
   }
   const fmtNum = (n) => Math.round(n).toLocaleString("en-US");
+  function fmtCompact(n) {
+    if (!n) return "—";
+    const a = Math.abs(n);
+    if (a >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (a >= 1e3) return (n / 1e3).toFixed(1) + "K";
+    return String(Math.round(n));
+  }
   const fmtBlock = (n) => n.toLocaleString("en-US");
   function fmtBytes(b) {
     if (b >= 1e6) return (b / 1e6).toFixed(2) + " MB";
@@ -57,5 +65,5 @@
     return { sub: SUBS[st.key] || "", right: st.durationMs ? fmtClock(st.durationMs) : "" };
   }
 
-  window.PU = { pad, fmtClock, fmtSecs, fmtNum, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, SHORT, FULL, stageStatus };
+  window.PU = { pad, fmtClock, fmtSecs, fmtNum, fmtCompact, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, SHORT, FULL, stageStatus };
 })();

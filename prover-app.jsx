@@ -5,7 +5,7 @@
 // and window.proverFeed (data).
 // ==============================================================
 const { useState, useEffect } = React;
-const { pad, fmtClock, fmtSecs, fmtNum, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, FULL, stageStatus } = window.PU;
+const { pad, fmtClock, fmtSecs, fmtNum, fmtCompact, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, FULL, stageStatus } = window.PU;
 const { Sparkline, Timeline, Histogram } = window;
 
 const nav = (hash) => { window.location.hash = hash; };
@@ -303,6 +303,30 @@ function Cluster({ cluster }) {
   );
 }
 
+// ======================= NETWORK METRICS (real ledger aggregates) =======================
+function NetMetrics({ m }) {
+  if (!m) return null;
+  const cell = (l, v, s) => (
+    <div className="mcell"><div className="ml">{l}</div><div className="mv">{v}</div>{s && <div className="ms">{s}</div>}</div>
+  );
+  return (
+    <div className="panel-b">
+      <div className="sec"><span className="sec-t">Network metrics</span><span className="rule"></span><span className="sec-c">{m.rangesProven} ranges · {m.blocksProven} blocks · from ledger</span></div>
+      <div className="mgrid det-grid">
+        {cell("Avg range size", m.avgRangeBlocks ? m.avgRangeBlocks.toFixed(1) : "—", "blocks / range")}
+        {cell("Avg gas / block", m.avgGasPerBlock ? fmtCompact(m.avgGasPerBlock) : "—", m.gasCount + " measured")}
+        {cell("Avg steps / block", m.avgStepsPerBlock ? fmtCompact(m.avgStepsPerBlock) : "—", "zkVM cycles")}
+        {cell("Avg witness gen", fmtClock(m.avgWitnessMs), "kona host")}
+        {cell("Avg prove", fmtClock(m.avgProveMs), "after witness")}
+        {cell("Avg total / range", fmtClock(m.avgTotalMs), m.measuredCount + " measured")}
+        {cell("Avg proof size", m.avgProofBytes ? fmtBytes(m.avgProofBytes) : "—", "range STARK")}
+        {cell("Total gas proven", m.totalGas ? fmtCompact(m.totalGas) : "—", null)}
+        {cell("Aggregation", "n/a", "range-proof only")}
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ snap, now }) {
   const live = !!snap.cluster;
   return (
@@ -310,6 +334,7 @@ function Dashboard({ snap, now }) {
       <MainBar title="Live" sub={snap.source || "real-time OP range proving"} snap={snap} now={now} />
       <Rail snap={snap} />
       <CurrentJob job={snap.active} />
+      <NetMetrics m={snap.metrics} />
       <div className="dash-grid">
         <div className="panel-b">
           <div className="sec"><span className="sec-t">Proof-time distribution</span><span className="rule"></span><span className="sec-c">{snap.stats.dist ? snap.stats.dist.total : 0} proven</span></div>
@@ -389,8 +414,9 @@ function BlockDetail({ job, snap, now }) {
     );
   }
   const done = job.status === "proven" || job.status === "failed";
-  const witnessMs = job.stages[0] ? job.stages[0].durationMs : 0;
-  const proveMs = job.stages[1] ? job.stages[1].durationMs : 0;
+  const witnessMs = job.stages.find((s) => s.key === "witness")?.durationMs || 0;
+  const totalMs = jobTotalMs(job);
+  const proveMs = Math.max(0, totalMs - witnessMs);   // all cargo-zisk phases combined
   return (
     <div className="view">
       <MainBar title={`${fmtBlock(job.rangeStart)} → ${fmtBlock(job.rangeEnd)}`} sub={`${job.id} · ${snap.chain}`} snap={snap} now={now} back="#/blocks" />
@@ -405,10 +431,12 @@ function BlockDetail({ job, snap, now }) {
       <div className="mgrid det-grid">
         <div className="mcell"><div className="ml">Total proof time</div><div className="mv">{fmtClock(job.elapsedMs)}</div></div>
         <div className="mcell"><div className="ml">Witness gen</div><div className="mv">{fmtClock(witnessMs)}</div></div>
-        <div className="mcell"><div className="ml">Range STARK</div><div className="mv">{fmtClock(proveMs)}</div></div>
+        <div className="mcell"><div className="ml">Range prove</div><div className="mv">{fmtClock(proveMs)}</div></div>
         <div className="mcell"><div className="ml">Proof size</div><div className="mv">{job.proofBytes > 0 ? fmtBytes(job.proofBytes) : "—"}</div></div>
+        <div className="mcell"><div className="ml">Gas proven</div><div className="mv">{job.gas > 0 ? fmtCompact(job.gas) : "—"}</div></div>
+        <div className="mcell"><div className="ml">zkVM steps</div><div className="mv">{job.steps > 0 ? fmtCompact(job.steps) : "—"}</div></div>
+        <div className="mcell"><div className="ml">Transactions</div><div className="mv">{job.txs > 0 ? fmtNum(job.txs) : "—"}</div></div>
         <div className="mcell"><div className="ml">Blocks</div><div className="mv">{job.blocks}</div></div>
-        <div className="mcell"><div className="ml">Type</div><div className="mv" style={{ fontSize: 13 }}>range proof</div></div>
       </div>
 
       <div className="panel-b" style={{ marginTop: 22 }}>

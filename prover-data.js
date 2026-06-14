@@ -147,6 +147,10 @@
         history: this.history.slice(),
         recentDurations: this.recentDurations.slice(-44),
         stats: this.stats,
+        metrics: this.metrics || null,            // rich ledger aggregates (live feed only)
+        l2ProvenFrontier: this.l2ProvenFrontier ?? null,
+        provingStatus: this.provingStatus || null,
+        failedCount: this.failedCount || 0,
         cluster: this.cluster || null,   // worker roster (live feed only)
         source: this.source || null,     // data-source label (live feed only)
       };
