@@ -468,7 +468,7 @@ function App() {
         } catch (e) {
           window.proverFeed.setConnected(false);
         }
-        if (!stop) timer = setTimeout(poll, 3000);
+        if (!stop) timer = setTimeout(poll, 1500);
       };
       poll();
     } else {

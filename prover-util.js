@@ -10,6 +10,7 @@
     return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
   }
   function fmtSecs(ms) {
+    if (!ms || ms <= 0) return "—";
     const s = ms / 1000;
     return s >= 100 ? `${Math.round(s)}s` : `${s.toFixed(1)}s`;
   }
