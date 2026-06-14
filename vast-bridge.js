@@ -10,7 +10,9 @@
 const fs = require("fs"), path = require("path"), cp = require("child_process");
 const ROOT = "/root/op-zisk";
 const PROOF_DIRS = ["data/10/proofs/range", "data/10/proofs/range-0.19-backup"].map(d => path.join(ROOT, d));
-const LOGS = path.join(ROOT, "logs"), OUT = path.join(__dirname, "feed.json"), POLL = 1000;
+// the proof loop tees everything durably here: witness-S-E.log / range-S-E.log / agg-*.log
+const LOGS = path.join(ROOT, "logs/proof-loop-mainnet"), OUT = path.join(__dirname, "feed.json"), POLL = 1000;
+function rangeLog(s, e) { let t = ""; for (const p of [`witness-${s}-${e}.log`, `range-${s}-${e}.log`]) { try { t += fs.readFileSync(path.join(LOGS, p), "utf8"); } catch {} } return t; }
 const PHASEDIR = path.join(__dirname, "phases"); try { fs.mkdirSync(PHASEDIR); } catch {}
 // persist real per-phase durations as we observe the live run, so finished blocks
 // keep honest timing even when the run wrote no log file and its pane scrolls away.
@@ -41,7 +43,16 @@ function appendLedger(rec) { try { fs.appendFileSync(LEDGER, JSON.stringify(rec)
 
 function env(k){try{const s=fs.readFileSync(path.join(ROOT,".env.vast-mainnet"),"utf8");const m=s.split("\n").find(l=>l.startsWith(k+"="));return m?m.slice(k.length+1).trim():null}catch{return null}}
 const L1=env("L1_RPC"), L2=env("L2_RPC");
-async function rpc(u,m){try{const r=await fetch(u,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",method:m,id:1}),signal:AbortSignal.timeout(6000)});return (await r.json()).result}catch{return null}}
+async function rpc(u,m,params){try{const r=await fetch(u,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",method:m,params:params||[],id:1}),signal:AbortSignal.timeout(6000)});return (await r.json()).result}catch{return null}}
+// gas/txs come from the chain (loop logs don't carry kona ExecutionStats), summed over [s,e)
+async function rangeGasTxs(s, e) {
+  let gas = 0, txs = 0, ok = false;
+  for (let b = s; b < e; b++) {
+    const blk = await rpc(L2, "eth_getBlockByNumber", ["0x" + b.toString(16), false]);
+    if (blk && blk.gasUsed) { gas += parseInt(blk.gasUsed, 16) || 0; txs += (blk.transactions ? blk.transactions.length : 0); ok = true; }
+  }
+  return ok ? { gas, txs } : null;
+}
 const CHAINS={"0xa":"OP Mainnet","0xaa37dc":"OP Sepolia","0x1":"Ethereum"};
 const sh=(c)=>{try{return cp.execSync(c,{maxBuffer:8<<20}).toString()}catch{return ""}};
 
@@ -49,18 +60,20 @@ let HOST="unknown";
 {const g=sh("nvidia-smi --query-gpu=name --format=csv,noheader").trim().split("\n").filter(Boolean); if(g.length) HOST=`${g.length}x ${g[0].replace(/NVIDIA GeForce /,"")}`;}
 
 // The real range-proof pipeline. [key, label, reached-regex, done-regex(captures ms)]
+// markers verified against real logs/proof-loop-mainnet/{witness,range}-*.log
 const PIPE = [
   ["witness","Witness gen", /Starting witness preimage server|Generated witness|INITIALIZING_PROOFMAN/, /Generated witness.*?elapsed_ms[=\s]+(\d+)/],
   ["setup","Prover setup", />>> INITIALIZING_PROOFMAN/, /<<< INITIALIZING_PROOFMAN \((\d+)ms\)/],
-  ["execute","Execute", />>> (EXECUTE|STARTING_ASM_MICROSERVICES)/, /<<< EXECUTE \((\d+)ms\)/],
+  ["execute","Execute", />>> (EXECUTE|STARTING_ASM_MICROSERVICES|COMPUTE_MINIMAL_TRACE)/, /<<< EXECUTE \((\d+)ms\)/],
   ["contrib","Contributions", />>> CALCULATING_CONTRIBUTIONS/, /<<< CALCULATING_CONTRIBUTIONS \((\d+)ms\)/],
-  ["inner","Inner proofs", />>> GENERATING_(INNER_)?PROOFS/, /<<< GENERATING_PROOFS \((\d+)ms\)|Saved range proof|RANGE_STATUS=0/],
+  ["inner","Inner proofs", />>> GENERATING_(INNER_)?PROOFS/, /<<< GENERATING_INNER_PROOFS \((\d+)ms\)|Range proof saved to/],
 ];
+const DONE_RE = /Range proof saved to|RANGE_STATUS=0/;
 
 // parse the real phases from a chunk of run output (log file or captured pane)
 function parsePhases(txt, forceAllDone) {
   txt = txt.replace(/\x1b\[[0-9;]*m/g, "");
-  const allDone = forceAllDone || /Saved range proof|RANGE_STATUS=0/.test(txt);
+  const allDone = forceAllDone || DONE_RE.test(txt);
   let reached = -1;
   PIPE.forEach((p, i) => { if (p[2].test(txt)) reached = Math.max(reached, i); });
   return PIPE.map((p, i) => {
@@ -105,7 +118,7 @@ function smokePane() {
   return "";
 }
 
-function proven() {
+async function proven() {
   const ledger = loadLedger();
   // finalize any proof file not yet in the ledger: freeze its record once.
   const seen = new Set();
@@ -114,18 +127,17 @@ function proven() {
       const k=m[1]+"-"+m[2]; if(seen.has(k))continue; seen.add(k);
       if (ledger.has(k)) continue;                       // already frozen — never rewrite
       const st=fs.statSync(path.join(dir,f)), s=+m[1], e=+m[2];
-      let log=""; for(const suf of["execute","prove"]){try{log+=fs.readFileSync(path.join(LOGS,`multi-${s}-${e}-${suf}.log`),"utf8")}catch{}}
-      const stages = parsePhases(log, true);             // durations from log if present
-      const sc = readSidecar(s, e);                       // else from live-captured sidecar
-      const scP = sc ? sc.phases : {}, scS = sc ? sc.stats : {};
+      const log = rangeLog(s, e);                         // durable witness+range loop logs
+      const stages = parsePhases(log, true);
+      const sc = readSidecar(s, e);                       // sidecar fallback for any phase not in log
+      const scP = sc ? sc.phases : {};
       stages.forEach(x => { if (!x.durationMs && scP[x.key]) x.durationMs = scP[x.key]; });
-      const stats = parseStats(log) || scS || {};
       const phases = {}; stages.forEach(x => phases[x.key] = x.durationMs);
-      const rec = { s, e, blocks: stats.nb_blocks || (e-s), host: HOST, proofBytes: st.size, phases,
+      const gt = await rangeGasTxs(s, e);                 // gas/txs from chain (not in logs)
+      const rec = { s, e, blocks: e-s, host: HOST, proofBytes: st.size, phases,
         totalMs: stages.reduce((a,x)=>a+x.durationMs,0),
-        gas: stats.eth_gas_used || 0, steps: stats.total_instruction_count || 0,
-        txs: stats.nb_transactions || 0, witnessSec: stats.witness_generation_time_sec || 0,
-        execSec: stats.total_execution_time_sec || 0, finishedAt: st.mtimeMs };
+        gas: gt ? gt.gas : 0, txs: gt ? gt.txs : 0, steps: 0,  // steps need a metered execute pass the loop skips
+        finishedAt: st.mtimeMs };
       appendLedger(rec); ledger.set(k, rec);
     } }
   const recs = [...ledger.values()];
@@ -137,14 +149,32 @@ function proven() {
       proofBytes:r.proofBytes, txHash:null, startedAt:r.finishedAt-(r.totalMs||0), finishedAt:r.finishedAt,
       elapsedMs:r.totalMs||0, etaMs:0, note:"range-proof-only", _mt:r.finishedAt, _dur:r.totalMs||0 };
   });
-  return { history, metrics: computeMetrics(recs) };
+  return { history, metrics: computeMetrics(recs, aggRecords()) };
+}
+
+// aggregation runs every RANGES_PER_AGG ranges -> agg-<first>-to-<last>.log.
+// <<< NAME (Xms) phase markers are universal here, so summing them = real agg compute time.
+function aggRecords() {
+  let fl = []; try { fl = fs.readdirSync(LOGS); } catch {}
+  const out = [];
+  for (const f of fl) {
+    const m = f.match(/^agg-(\d+)-to-(\d+)\.log$/); if (!m) continue;
+    let txt = ""; try { txt = fs.readFileSync(path.join(LOGS, f), "utf8").replace(/\x1b\[[0-9;]*m/g, ""); } catch { continue; }
+    let totalMs = 0; for (const mm of txt.matchAll(/<<< [A-Z_]+ \((\d+)ms\)/g)) totalMs += +mm[1];
+    const done = /proof saved|Aggregated proof|Final proof|PLONK proof|Saved (agg|final)/i.test(txt);
+    const st = fs.statSync(path.join(LOGS, f));
+    out.push({ first: +m[1], last: +m[2], totalMs, done, finishedAt: st.mtimeMs });
+  }
+  return out.sort((a, b) => b.finishedAt - a.finishedAt);
 }
 
 // aggregates over the durable ledger — averaged ONLY over records that actually carry the
 // datum (so missing-data blocks don't drag an average to zero). agg = n/a (not run here).
 const avg = (a) => a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0;
 const sum = (a) => a.reduce((x,y)=>x+y,0);
-function computeMetrics(recs) {
+function computeMetrics(recs, aggs) {
+  aggs = aggs || [];
+  const aggDone = aggs.filter(a => a.totalMs > 0);
   const gas = recs.filter(r=>r.gas>0), steps = recs.filter(r=>r.steps>0);
   const wit = recs.map(r=>r.phases&&r.phases.witness||0).filter(x=>x>0);
   const prov = recs.filter(r=>r.totalMs>0).map(r=>r.totalMs-((r.phases&&r.phases.witness)||0)).filter(x=>x>0);
@@ -157,28 +187,26 @@ function computeMetrics(recs) {
     totalGas: sum(recs.map(r=>r.gas||0)), avgGasPerBlock: tb ? sum(gas.map(r=>r.gas))/tb : 0,
     totalSteps: sum(recs.map(r=>r.steps||0)), avgStepsPerBlock: tbS ? sum(steps.map(r=>r.steps))/tbS : 0,
     avgWitnessMs: avg(wit), avgProveMs: avg(prov), avgTotalMs: avg(tot), avgProofBytes: avg(sz),
-    measuredCount: tot.length, gasCount: gas.length,
-    agg: null, aggNote: "aggregation not run on this host (range-proof only)",
+    measuredCount: tot.length, gasCount: gas.length, stepsAvailable: false,
+    aggCount: aggs.length, avgAggMs: avg(aggDone.map(a=>a.totalMs)), aggNote: "PLONK agg every 2 ranges",
   };
 }
 
 function activeJob() {
   const m = sh("ps -eo args").match(/release\/multi --start (\d+) --end (\d+)/); if (!m) return null;
   const s=+m[1], e=+m[2];
-  const pane = smokePane();
-  const stages = parsePhases(pane, false);
-  const stats = parseStats(pane);
-  mergeSidecar(s, e, stages, stats);                    // snapshot live durations + stats so they survive to history
+  const log = rangeLog(s, e);                             // live tee'd log; durable + complete
+  const txt = log || smokePane();                        // pane only if log not yet flushed
+  const stages = parsePhases(txt, false);
+  mergeSidecar(s, e, stages, null);                      // persist live durations so they survive to history
   return { id:"B-"+s, rangeStart:s, rangeEnd:e, blocks:e-s, host:HOST, status:"proving",
-    stageIndex: stageIndexOf(stages), stages,
-    gas: stats ? (stats.eth_gas_used||0) : 0, steps: stats ? (stats.total_instruction_count||0) : 0,
-    txs: stats ? (stats.nb_transactions||0) : 0, proofBytes:0, txHash:null,
+    stageIndex: stageIndexOf(stages), stages, gas:0, steps:0, txs:0, proofBytes:0, txHash:null,
     startedAt:null, finishedAt:null, elapsedMs: stages.reduce((a,x)=>a+x.durationMs,0), etaMs:0 };
 }
 
 async function cycle() {
   const status = provingStatus();
-  const { history, metrics } = proven();
+  const { history, metrics } = await proven();
   const active = status === "proving" ? activeJob() : null;
   const [cid,l1,l2] = await Promise.all([rpc(L2,"eth_chainId"), rpc(L1,"eth_blockNumber"), rpc(L2,"eth_blockNumber")]);
   const recentDurations = history.filter(j=>j._dur>0).map(j=>j._dur);

@@ -315,13 +315,13 @@ function NetMetrics({ m }) {
       <div className="mgrid det-grid">
         {cell("Avg range size", m.avgRangeBlocks ? m.avgRangeBlocks.toFixed(1) : "—", "blocks / range")}
         {cell("Avg gas / block", m.avgGasPerBlock ? fmtCompact(m.avgGasPerBlock) : "—", m.gasCount + " measured")}
-        {cell("Avg steps / block", m.avgStepsPerBlock ? fmtCompact(m.avgStepsPerBlock) : "—", "zkVM cycles")}
         {cell("Avg witness gen", fmtClock(m.avgWitnessMs), "kona host")}
         {cell("Avg prove", fmtClock(m.avgProveMs), "after witness")}
         {cell("Avg total / range", fmtClock(m.avgTotalMs), m.measuredCount + " measured")}
+        {cell("Avg agg (PLONK)", m.aggCount ? fmtClock(m.avgAggMs) : "—", (m.aggCount || 0) + " batch" + (m.aggCount === 1 ? "" : "es"))}
         {cell("Avg proof size", m.avgProofBytes ? fmtBytes(m.avgProofBytes) : "—", "range STARK")}
         {cell("Total gas proven", m.totalGas ? fmtCompact(m.totalGas) : "—", null)}
-        {cell("Aggregation", "n/a", "range-proof only")}
+        {cell("zkVM steps", "—", "loop skips metered execute")}
       </div>
     </div>
   );
