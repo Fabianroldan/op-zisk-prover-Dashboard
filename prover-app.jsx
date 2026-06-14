@@ -5,7 +5,7 @@
 // and window.proverFeed (data).
 // ==============================================================
 const { useState, useEffect } = React;
-const { pad, fmtClock, fmtSecs, fmtNum, fmtCompact, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, FULL, stageStatus } = window.PU;
+const { pad, fmtClock, fmtSecs, fmtDur, fmtNum, fmtCompact, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, FULL, stageStatus } = window.PU;
 const { Sparkline, Timeline, Histogram } = window;
 
 const nav = (hash) => { window.location.hash = hash; };
@@ -163,7 +163,7 @@ function Rail({ snap }) {
     <div className="rail">
       <div className="m"><span className="m-l">Proven</span><span className="m-v green">{m ? m.rangesProven : s.provenToday}<span className="u">ranges · {m ? m.blocksProven : 0} blk</span></span></div>
       <div className="m"><span className="m-l">Throughput</span><span className="m-v">{m && m.blocksPerHour ? m.blocksPerHour.toFixed(1) : "—"}<span className="u">blk/hr</span></span></div>
-      <div className="m"><span className="m-l">Avg / range</span><span className="m-v">{fmtClock(s.avgProveMs)}<span className="u">p95 {fmtClock(s.p95Ms)}</span></span></div>
+      <div className="m"><span className="m-l">Avg / range</span><span className="m-v">{fmtDur(s.avgProveMs)}<span className="u">p95 {fmtDur(s.p95Ms)}</span></span></div>
       <div className="m"><span className="m-l">Proven frontier</span><span className="m-v">{snap.l2ProvenFrontier ? fmtBlock(snap.l2ProvenFrontier) : "—"}</span></div>
       <div className="m"><span className="m-l">Behind tip</span><span className="m-v">{behind ? fmtNum(behind) : "—"}<span className="u">blocks</span></span></div>
       <div className="m grow spark"><span className="m-l">Range time · last {snap.recentDurations.length}</span><Sparkline data={snap.recentDurations} /></div>
@@ -181,8 +181,8 @@ function CurrentJob({ job }) {
       </div>
     );
   }
-  const total = jobTotalMs(job);
-  const pct = Math.min(100, (job.elapsedMs / total) * 100);
+  // progress + ETA come from the bridge (historical-avg based) — never the 100% done-only bug
+  const pct = job.progress != null ? job.progress : Math.min(100, (job.elapsedMs / (jobTotalMs(job) || 1)) * 100);
   const ai = Math.min(job.stageIndex, job.stages.length - 1);
   const active = job.stages[ai];
   const ss = stageStatus(job, active);
@@ -215,7 +215,7 @@ function CurrentJob({ job }) {
           <span className="play">▶</span>
           <span className="cstage">{FULL[active.key]}</span>
           <span className="cstatus"><b>{ss.sub}</b></span>
-          <span className="cright">{fmtSecs(active.elapsedMs)} / {fmtSecs(active.durationMs)} · <b>{ss.right}</b></span>
+          <span className="cright">{fmtSecs(active.elapsedMs)}{active.expectedMs > 0 ? ` / ~${fmtSecs(active.expectedMs)} exp` : ""}</span>
         </div>
       </div>
     </div>
@@ -318,10 +318,10 @@ function NetMetrics({ m }) {
         {cell("Sec / block", m.secPerBlock ? m.secPerBlock.toFixed(0) + "s" : "—", "proving rate")}
         {cell("Avg range size", m.avgRangeBlocks ? m.avgRangeBlocks.toFixed(1) : "—", "blocks / range")}
         {cell("Avg gas / block", m.avgGasPerBlock ? fmtCompact(m.avgGasPerBlock) : "—", m.gasCount + " measured")}
-        {cell("Avg witness gen", fmtClock(m.avgWitnessMs), "kona host")}
-        {cell("Avg prove", fmtClock(m.avgProveMs), "after witness")}
-        {cell("Avg total / range", fmtClock(m.avgTotalMs), m.measuredCount + " measured")}
-        {cell("Avg agg (PLONK)", m.aggCount ? fmtClock(m.avgAggMs) : "—", (m.aggCount || 0) + " batch" + (m.aggCount === 1 ? "" : "es"))}
+        {cell("Avg witness gen", fmtDur(m.avgWitnessMs), "kona host")}
+        {cell("Avg prove", fmtDur(m.avgProveMs), "after witness")}
+        {cell("Avg total / range", fmtDur(m.avgTotalMs), m.measuredCount + " measured")}
+        {cell("Avg agg (PLONK)", m.aggCount ? fmtDur(m.avgAggMs) : "—", (m.aggCount || 0) + " batch" + (m.aggCount === 1 ? "" : "es"))}
         {cell("Proof instances / range", m.instancesAvailable ? fmtNum(m.avgInstances) : "—", m.avgMain ? "Main " + fmtNum(m.avgMain) : "ZisK segments")}
         {cell("Avg proof size", m.avgProofBytes ? fmtBytes(m.avgProofBytes) : "—", "range STARK")}
         {cell("Backlog", (m.backlogRanges || 0) + " ranges", (m.backlogBlocks || 0) + " blocks witness-cached")}
@@ -433,9 +433,9 @@ function BlockDetail({ job, snap, now }) {
       </div>
 
       <div className="mgrid det-grid">
-        <div className="mcell"><div className="ml">Total proof time</div><div className="mv">{fmtClock(job.elapsedMs)}</div></div>
-        <div className="mcell"><div className="ml">Witness gen</div><div className="mv">{fmtClock(witnessMs)}</div></div>
-        <div className="mcell"><div className="ml">Range prove</div><div className="mv">{fmtClock(proveMs)}</div></div>
+        <div className="mcell"><div className="ml">Total proof time</div><div className="mv">{fmtDur(job.elapsedMs)}</div></div>
+        <div className="mcell"><div className="ml">Witness gen</div><div className="mv">{fmtDur(witnessMs)}</div></div>
+        <div className="mcell"><div className="ml">Range prove</div><div className="mv">{fmtDur(proveMs)}</div></div>
         <div className="mcell"><div className="ml">Proof size</div><div className="mv">{job.proofBytes > 0 ? fmtBytes(job.proofBytes) : "—"}</div></div>
         <div className="mcell"><div className="ml">Gas proven</div><div className="mv">{job.gas > 0 ? fmtCompact(job.gas) : "—"}</div></div>
         <div className="mcell"><div className="ml">Proof instances</div><div className="mv">{job.instances > 0 ? fmtNum(job.instances) : "—"}</div></div>
@@ -453,9 +453,10 @@ function BlockDetail({ job, snap, now }) {
           <div className="mst-h"><span></span><span>Stage</span><span>Detail</span><span className="r">Duration</span><span className="r">State</span></div>
           {job.stages.map((st) => {
             const cls = st.status === "done" ? "done" : st.status === "active" ? "active" : "pending";
-            const pct = st.durationMs ? Math.min(100, (st.elapsedMs / st.durationMs) * 100) : 0;
+            const denom = st.durationMs || st.expectedMs || 0;            // expected width when not yet timed
+            const pct = cls === "done" ? 100 : denom ? Math.min(98, (st.elapsedMs / denom) * 100) : 0;
             const ss = stageStatus(job, st);
-            const stateTxt = cls === "done" ? "Done" : cls === "active" ? `${Math.round(pct)}%` : "Pending";
+            const stateTxt = cls === "done" ? "Done" : cls === "active" ? "● live" : "Pending";
             return (
               <div key={st.key} className={"mstr " + cls}>
                 <span className="si"></span>
@@ -463,7 +464,7 @@ function BlockDetail({ job, snap, now }) {
                 {cls === "pending"
                   ? <span style={{ fontSize: 11.5, color: "var(--t3)", fontFamily: "var(--mono)" }}>{ss.sub}</span>
                   : <div className="sbar"><i style={{ width: pct + "%" }}></i></div>}
-                <span className="sd">{cls === "pending" ? `~${fmtSecs(st.durationMs)}` : fmtSecs(cls === "done" ? st.durationMs : st.elapsedMs)}</span>
+                <span className="sd">{cls === "done" ? fmtSecs(st.durationMs) : cls === "active" ? (st.elapsedMs > 0 ? fmtSecs(st.elapsedMs) + (st.expectedMs ? ` / ~${fmtSecs(st.expectedMs)}` : "") : "…") : `~${fmtSecs(st.expectedMs)}`}</span>
                 <span className="ss">{stateTxt}</span>
               </div>
             );

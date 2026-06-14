@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>OP-ZisK Prover — Live</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -25,12 +28,12 @@
 <script>window.OPZISK_FEED_URL = "./status.json";</script>
 
 <!-- data + util layers (plain JS, websocket-ready). Create window.proverFeed. -->
-<script src="prover-data.js"></script>
-<script src="prover-util.js"></script>
+<script src="prover-data.js?v=7"></script>
+<script src="prover-util.js?v=7"></script>
 <script>window.proverFeed = new ProverFeed();</script>
 
 <!-- chart components, then app shell -->
-<script type="text/babel" src="prover-charts.jsx"></script>
-<script type="text/babel" src="prover-app.jsx"></script>
+<script type="text/babel" src="prover-charts.jsx?v=7"></script>
+<script type="text/babel" src="prover-app.jsx?v=7"></script>
 </body>
 </html>

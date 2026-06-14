@@ -25,12 +25,14 @@ function Sparkline({ data, w = 150, h = 30 }) {
 
 // ---------------------- stage timeline ----------------------
 function Timeline({ job, showAxis = true }) {
-  const total = job.stages.reduce((s, x) => s + x.durationMs, 0);
-  const timed = total > 0;  // do we have real per-stage timing for this job?
-  // proportional columns when timed; equal columns when timing is unavailable
-  const cols = job.stages.map((s) => timed ? `${Math.max(3, (s.durationMs / total) * 100)}fr` : "1fr").join(" ");
-  const elapsedPct = timed ? Math.min(100, (job.elapsedMs / total) * 100) : 0;
+  // size each stage by its REAL duration if done, else its historical expected width.
+  // this stops the in-progress "100% / tiny active sliver" bug.
+  const sizeMs = (s) => (s.durationMs > 0 ? s.durationMs : (s.expectedMs || 0));
+  const total = job.stages.reduce((a, x) => a + sizeMs(x), 0);
+  const timed = total > 0;
+  const cols = job.stages.map((s) => timed ? `${Math.max(3, (sizeMs(s) / total) * 100)}fr` : "1fr").join(" ");
   const isLive = job.status === "proving";
+  const elapsedPct = job.progress != null ? job.progress : (timed ? Math.min(100, (job.elapsedMs / total) * 100) : 0);
 
   const ticks = [];
   if (timed) {
@@ -47,7 +49,7 @@ function Timeline({ job, showAxis = true }) {
       <div className="tl-labels" style={{ gridTemplateColumns: cols }}>
         {job.stages.map((st, i) => {
           const cls = cellState(st, i);
-          const wide = !timed || (st.durationMs / total) > 0.055;
+          const wide = !timed || (sizeMs(st) / total) > 0.055;
           return (
             <div key={st.key} className={"tl-lab " + cls}>
               <span className="ix">{_pad(i + 1)}</span>
@@ -60,13 +62,15 @@ function Timeline({ job, showAxis = true }) {
         <div className="tl-track" style={{ gridTemplateColumns: cols }}>
           {job.stages.map((st, i) => {
             const cls = cellState(st, i);
-            const pct = cls === "done" ? 100 : st.durationMs ? Math.min(100, (st.elapsedMs / st.durationMs) * 100) : (cls === "active" ? 40 : 0);
-            const wide = !timed || (st.durationMs / total) > 0.07;
+            const denom = st.durationMs || st.expectedMs || 0;
+            const pct = cls === "done" ? 100 : denom ? Math.min(98, (st.elapsedMs / denom) * 100) : (cls === "active" ? 40 : 0);
+            const wide = !timed || (sizeMs(st) / total) > 0.07;
             return (
               <div key={st.key} className={"cell " + cls}>
                 <span className="fill" style={{ width: pct + "%" }}></span>
                 {cls === "done" && wide && st.durationMs > 0 && <span className="cell-dur">{_fmtSecs(st.durationMs)}</span>}
-                {cls === "pending" && wide && st.durationMs > 0 && <span className="cell-dur">~{_fmtSecs(st.durationMs)}</span>}
+                {cls === "active" && wide && st.elapsedMs > 0 && <span className="cell-dur">{_fmtSecs(st.elapsedMs)}</span>}
+                {cls === "pending" && wide && st.expectedMs > 0 && <span className="cell-dur">~{_fmtSecs(st.expectedMs)}</span>}
               </div>
             );
           })}

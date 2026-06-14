@@ -186,6 +186,24 @@ function aggRecords() {
 // datum (so missing-data blocks don't drag an average to zero). agg = n/a (not run here).
 const avg = (a) => a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0;
 const sum = (a) => a.reduce((x,y)=>x+y,0);
+function avgPhaseDurations(recs) {
+  const out = {};
+  for (const p of PIPE) { const k = p[0]; const v = recs.map(r => (r.phases && r.phases[k]) || 0).filter(x => x > 0); out[k] = Math.round(avg(v)); }
+  return out;
+}
+// epoch ms of the most-recent ">>> PHASE" line that maps to the active stage (live phase timer)
+function activePhaseStart(txt, activeKey) {
+  const reach = (PIPE.find(p => p[0] === activeKey) || [])[2];
+  let ts = 0;
+  for (const ln of txt.split("\n")) {
+    if (reach && reach.test(ln)) { const m = ln.match(/^(\d{4}-\d\d-\d\dT[\d:.]+Z)/); if (m) ts = Date.parse(m[1]); }
+  }
+  return ts;
+}
+function firstLogStart(txt) {
+  const m = txt.match(/^(\d{4}-\d\d-\d\dT[\d:.]+Z)/m);
+  return m ? Date.parse(m[1]) : 0;
+}
 function computeMetrics(recs, aggs) {
   aggs = aggs || [];
   const aggDone = aggs.filter(a => a.totalMs > 0);
@@ -210,6 +228,7 @@ function computeMetrics(recs, aggs) {
     totalSteps: sum(recs.map(r=>r.steps||0)), avgStepsPerBlock: tbS ? sum(steps.map(r=>r.steps))/tbS : 0,
     avgWitnessMs: avg(wit), avgProveMs: avg(prov), avgTotalMs: avg(tot), avgProofBytes: avg(sz),
     measuredCount: tot.length, gasCount: gas.length,
+    avgPhases: avgPhaseDurations(recs),                          // per-phase historical avg (for live ETA/gantt)
     secPerBlock, blocksPerHour,                                  // real throughput (timed ranges)
     avgInstances: avg(inst.map(r=>r.instances)), avgMain: avg(mainI.map(r=>r.main)),
     instancesAvailable: inst.length > 0, stepsAvailable: false,
@@ -234,22 +253,40 @@ function witnessQueue(provenKeys, activeKey) {
   return q.sort((a, b) => a.rangeStart - b.rangeStart);
 }
 
-function activeJob() {
+function activeJob(avgPh) {
   const m = sh("ps -eo args").match(/release\/multi --start (\d+) --end (\d+)/); if (!m) return null;
   const s=+m[1], e=+m[2];
   const log = rangeLog(s, e);                             // live tee'd log; durable + complete
-  const txt = log || smokePane();                        // pane only if log not yet flushed
+  const txt = (log || smokePane()).replace(/\x1b\[[0-9;]*m/g, "");
   const stages = parsePhases(txt, false);
   mergeSidecar(s, e, stages, null);                      // persist live durations so they survive to history
+  avgPh = avgPh || {};
+  const ai = stages.findIndex(x => x.status === "active");
+  const activeKey = ai >= 0 ? stages[ai].key : null;
+  const now = Date.now();
+  const startTs = activeKey ? activePhaseStart(txt, activeKey) : 0;
+  const activeElapsed = startTs ? Math.max(0, now - startTs) : 0;
+  const doneMs = stages.filter(x => x.status === "done").reduce((a, x) => a + x.durationMs, 0);
+  // attach expected (historical) widths + live elapsed per stage
+  stages.forEach((x, i) => {
+    x.expectedMs = avgPh[x.key] || 0;
+    x.elapsedMs = x.status === "done" ? x.durationMs : (i === ai ? activeElapsed : 0);
+  });
+  // elapsed = sum of completed phases + the active phase's live elapsed.
+  // (NOT wall-clock: witness is prefetched ahead, so its log timestamps are stale.)
+  const elapsedMs = doneMs + activeElapsed;
+  const estTotal = doneMs + stages.filter(x => x.status !== "done").reduce((a, x) => a + Math.max(x.elapsedMs || 0, x.expectedMs || 0), 0);
+  const etaMs = Math.max(0, estTotal - elapsedMs);
+  const progress = estTotal ? Math.min(99, Math.round((elapsedMs / estTotal) * 100)) : 0;
   return { id:"B-"+s, rangeStart:s, rangeEnd:e, blocks:e-s, host:HOST, status:"proving",
-    stageIndex: stageIndexOf(stages), stages, gas:0, steps:0, txs:0, proofBytes:0, txHash:null,
-    startedAt:null, finishedAt:null, elapsedMs: stages.reduce((a,x)=>a+x.durationMs,0), etaMs:0 };
+    stageIndex: stageIndexOf(stages), stages, gas:0, txs:0, instances:0, main:0, proofBytes:0, txHash:null,
+    startedAt:null, finishedAt:null, elapsedMs, estimatedTotalMs: estTotal, etaMs, progress };
 }
 
 async function cycle() {
   const status = provingStatus();
   const { history, metrics } = await proven();
-  const active = status === "proving" ? activeJob() : null;
+  const active = status === "proving" ? activeJob(metrics.avgPhases) : null;
   const [cid,l1,l2] = await Promise.all([rpc(L2,"eth_chainId"), rpc(L1,"eth_blockNumber"), rpc(L2,"eth_blockNumber")]);
   const recentDurations = history.filter(j=>j._dur>0).map(j=>j._dur);
   const frontier = history.length ? Math.max(...history.map(j=>j.rangeEnd)) : null;

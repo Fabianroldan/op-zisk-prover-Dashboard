@@ -14,6 +14,16 @@
     const s = ms / 1000;
     return s >= 100 ? `${Math.round(s)}s` : `${s.toFixed(1)}s`;
   }
+  // explicit units, no ambiguous mm:ss — "6m 44s" / "44s" / "1h 6m"
+  function fmtDur(ms) {
+    if (!ms || ms <= 0) return "—";
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60), sec = s % 60;
+    if (m < 60) return sec ? `${m}m ${sec}s` : `${m}m`;
+    const h = Math.floor(m / 60), min = m % 60;
+    return min ? `${h}h ${min}m` : `${h}h`;
+  }
   const fmtNum = (n) => Math.round(n).toLocaleString("en-US");
   function fmtCompact(n) {
     if (!n) return "—";
@@ -65,5 +75,5 @@
     return { sub: SUBS[st.key] || "", right: st.durationMs ? fmtClock(st.durationMs) : "" };
   }
 
-  window.PU = { pad, fmtClock, fmtSecs, fmtNum, fmtCompact, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, SHORT, FULL, stageStatus };
+  window.PU = { pad, fmtClock, fmtSecs, fmtDur, fmtNum, fmtCompact, fmtBlock, fmtBytes, fmtUSD, shortHash, timeAgo, jobCost, jobTotalMs, SHORT, FULL, stageStatus };
 })();
