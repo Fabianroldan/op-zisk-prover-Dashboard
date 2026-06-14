@@ -30,21 +30,24 @@ function Timeline({ job, showAxis = true }) {
   const sizeMs = (s) => (s.durationMs > 0 ? s.durationMs : (s.expectedMs || 0));
   const total = job.stages.reduce((a, x) => a + sizeMs(x), 0);
   const timed = total > 0;
-  const cols = job.stages.map((s) => timed ? `${Math.max(3, (sizeMs(s) / total) * 100)}fr` : "1fr").join(" ");
+  // ONE fr array drives BOTH the grid columns AND the playhead position — so the line
+  // is always at the active bar's fill edge. true time-proportions (tiny 0.6 floor only
+  // so a near-zero phase never collapses to invisible).
+  const fr = job.stages.map((s) => timed ? Math.max(0.6, (sizeMs(s) / total) * 100) : 1);
+  const totalFr = fr.reduce((a, b) => a + b, 0);
+  const cols = fr.map((f) => f + "fr").join(" ");
   const isLive = job.status === "proving";
-  // playhead sits exactly at the active cell's fill edge — SAME basis as the bars (sizeMs),
-  // so the line tracks the actual moving bar, not a separate global %.
-  let headMs = 0;
-  for (const st of job.stages) {
-    const sz = sizeMs(st);
-    if (st.status === "done") { headMs += sz; continue; }
+  let headFr = 0;
+  for (let i = 0; i < job.stages.length; i++) {
+    const st = job.stages[i];
+    if (st.status === "done") { headFr += fr[i]; continue; }
     if (st.status === "active") {
       const denom = st.durationMs || st.expectedMs || 0;
-      headMs += denom ? Math.min(1, st.elapsedMs / denom) * sz : 0;
+      headFr += denom ? Math.min(1, st.elapsedMs / denom) * fr[i] : 0;
     }
     break;
   }
-  const elapsedPct = total ? Math.min(100, (headMs / total) * 100) : 0;
+  const elapsedPct = totalFr ? Math.min(100, (headFr / totalFr) * 100) : 0;
 
   const ticks = [];
   if (timed) {
