@@ -32,7 +32,19 @@ function Timeline({ job, showAxis = true }) {
   const timed = total > 0;
   const cols = job.stages.map((s) => timed ? `${Math.max(3, (sizeMs(s) / total) * 100)}fr` : "1fr").join(" ");
   const isLive = job.status === "proving";
-  const elapsedPct = job.progress != null ? job.progress : (timed ? Math.min(100, (job.elapsedMs / total) * 100) : 0);
+  // playhead sits exactly at the active cell's fill edge — SAME basis as the bars (sizeMs),
+  // so the line tracks the actual moving bar, not a separate global %.
+  let headMs = 0;
+  for (const st of job.stages) {
+    const sz = sizeMs(st);
+    if (st.status === "done") { headMs += sz; continue; }
+    if (st.status === "active") {
+      const denom = st.durationMs || st.expectedMs || 0;
+      headMs += denom ? Math.min(1, st.elapsedMs / denom) * sz : 0;
+    }
+    break;
+  }
+  const elapsedPct = total ? Math.min(100, (headMs / total) * 100) : 0;
 
   const ticks = [];
   if (timed) {
