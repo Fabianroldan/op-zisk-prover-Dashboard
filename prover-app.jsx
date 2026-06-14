@@ -157,15 +157,16 @@ function MainBar({ title, sub, snap, now, back }) {
 
 // ======================= METRIC RAIL =======================
 function Rail({ snap }) {
-  const s = snap.stats;
+  const s = snap.stats, m = snap.metrics;
+  const behind = (snap.l2Head && snap.l2ProvenFrontier) ? snap.l2Head - snap.l2ProvenFrontier : 0;
   return (
     <div className="rail">
-      <div className="m"><span className="m-l">Proven</span><span className="m-v green">{s.provenToday}<span className="u">jobs</span></span></div>
-      <div className="m"><span className="m-l">Avg prove</span><span className="m-v">{fmtClock(s.avgProveMs)}</span></div>
-      <div className="m"><span className="m-l">p50 / p95</span><span className="m-v">{fmtClock(s.p50Ms)}<span className="u">/ {fmtClock(s.p95Ms)}</span></span></div>
+      <div className="m"><span className="m-l">Proven</span><span className="m-v green">{m ? m.rangesProven : s.provenToday}<span className="u">ranges · {m ? m.blocksProven : 0} blk</span></span></div>
+      <div className="m"><span className="m-l">Throughput</span><span className="m-v">{m && m.blocksPerHour ? m.blocksPerHour.toFixed(1) : "—"}<span className="u">blk/hr</span></span></div>
+      <div className="m"><span className="m-l">Avg / range</span><span className="m-v">{fmtClock(s.avgProveMs)}<span className="u">p95 {fmtClock(s.p95Ms)}</span></span></div>
       <div className="m"><span className="m-l">Proven frontier</span><span className="m-v">{snap.l2ProvenFrontier ? fmtBlock(snap.l2ProvenFrontier) : "—"}</span></div>
-      <div className="m"><span className="m-l">L2 chain head</span><span className="m-v">{snap.l2Head ? fmtBlock(snap.l2Head) : "—"}</span></div>
-      <div className="m grow spark"><span className="m-l">Prove time · last {snap.recentDurations.length}</span><Sparkline data={snap.recentDurations} /></div>
+      <div className="m"><span className="m-l">Behind tip</span><span className="m-v">{behind ? fmtNum(behind) : "—"}<span className="u">blocks</span></span></div>
+      <div className="m grow spark"><span className="m-l">Range time · last {snap.recentDurations.length}</span><Sparkline data={snap.recentDurations} /></div>
     </div>
   );
 }
@@ -313,15 +314,18 @@ function NetMetrics({ m }) {
     <div className="panel-b">
       <div className="sec"><span className="sec-t">Network metrics</span><span className="rule"></span><span className="sec-c">{m.rangesProven} ranges · {m.blocksProven} blocks · from ledger</span></div>
       <div className="mgrid det-grid">
+        {cell("Throughput", m.blocksPerHour ? m.blocksPerHour.toFixed(1) : "—", "blocks / hour")}
+        {cell("Sec / block", m.secPerBlock ? m.secPerBlock.toFixed(0) + "s" : "—", "proving rate")}
         {cell("Avg range size", m.avgRangeBlocks ? m.avgRangeBlocks.toFixed(1) : "—", "blocks / range")}
         {cell("Avg gas / block", m.avgGasPerBlock ? fmtCompact(m.avgGasPerBlock) : "—", m.gasCount + " measured")}
         {cell("Avg witness gen", fmtClock(m.avgWitnessMs), "kona host")}
         {cell("Avg prove", fmtClock(m.avgProveMs), "after witness")}
         {cell("Avg total / range", fmtClock(m.avgTotalMs), m.measuredCount + " measured")}
         {cell("Avg agg (PLONK)", m.aggCount ? fmtClock(m.avgAggMs) : "—", (m.aggCount || 0) + " batch" + (m.aggCount === 1 ? "" : "es"))}
+        {cell("Proof instances / range", m.instancesAvailable ? fmtNum(m.avgInstances) : "—", m.avgMain ? "Main " + fmtNum(m.avgMain) : "ZisK segments")}
         {cell("Avg proof size", m.avgProofBytes ? fmtBytes(m.avgProofBytes) : "—", "range STARK")}
+        {cell("Backlog", (m.backlogRanges || 0) + " ranges", (m.backlogBlocks || 0) + " blocks witness-cached")}
         {cell("Total gas proven", m.totalGas ? fmtCompact(m.totalGas) : "—", null)}
-        {cell("zkVM steps", "—", "loop skips metered execute")}
       </div>
     </div>
   );
@@ -434,7 +438,7 @@ function BlockDetail({ job, snap, now }) {
         <div className="mcell"><div className="ml">Range prove</div><div className="mv">{fmtClock(proveMs)}</div></div>
         <div className="mcell"><div className="ml">Proof size</div><div className="mv">{job.proofBytes > 0 ? fmtBytes(job.proofBytes) : "—"}</div></div>
         <div className="mcell"><div className="ml">Gas proven</div><div className="mv">{job.gas > 0 ? fmtCompact(job.gas) : "—"}</div></div>
-        <div className="mcell"><div className="ml">zkVM steps</div><div className="mv">{job.steps > 0 ? fmtCompact(job.steps) : "—"}</div></div>
+        <div className="mcell"><div className="ml">Proof instances</div><div className="mv">{job.instances > 0 ? fmtNum(job.instances) : "—"}</div></div>
         <div className="mcell"><div className="ml">Transactions</div><div className="mv">{job.txs > 0 ? fmtNum(job.txs) : "—"}</div></div>
         <div className="mcell"><div className="ml">Blocks</div><div className="mv">{job.blocks}</div></div>
       </div>

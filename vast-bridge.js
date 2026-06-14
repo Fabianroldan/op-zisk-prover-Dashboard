@@ -92,6 +92,15 @@ const stageIndexOf = (stages) => stages.filter(s => s.status === "done").length;
 
 // The prover emits an ExecutionStats { ... } struct (in the execute log / live pane) with
 // the authoritative gas/steps/tx accounting for exactly what it proved. Parse it verbatim.
+// ZisK logs proof-instance counts (durable, in range log): "Total global instances: N" + "Main: N".
+// This is the available execution-size metric — raw instruction steps aren't logged in loop mode.
+function parseInstances(txt) {
+  txt = txt.replace(/\x1b\[[0-9;]*m/g, "");
+  const t = txt.match(/Total global instances:\s*(\d+)/);
+  const mn = txt.match(/\bMain:\s*(\d+)/);
+  return { instances: t ? +t[1] : 0, main: mn ? +mn[1] : 0 };
+}
+
 function parseStats(txt) {
   const m = txt.replace(/\x1b\[[0-9;]*m/g, "").match(/ExecutionStats \{([^}]*)\}/);
   if (!m) return null;
@@ -134,9 +143,11 @@ async function proven() {
       stages.forEach(x => { if (!x.durationMs && scP[x.key]) x.durationMs = scP[x.key]; });
       const phases = {}; stages.forEach(x => phases[x.key] = x.durationMs);
       const gt = await rangeGasTxs(s, e);                 // gas/txs from chain (not in logs)
+      const inst = parseInstances(log);                   // real proof-instance counts
       const rec = { s, e, blocks: e-s, host: HOST, proofBytes: st.size, phases,
         totalMs: stages.reduce((a,x)=>a+x.durationMs,0),
-        gas: gt ? gt.gas : 0, txs: gt ? gt.txs : 0, steps: 0,  // steps need a metered execute pass the loop skips
+        gas: gt ? gt.gas : 0, txs: gt ? gt.txs : 0,
+        instances: inst.instances, main: inst.main, steps: 0,  // raw steps not logged in loop mode
         finishedAt: st.mtimeMs };
       appendLedger(rec); ledger.set(k, rec);
     } }
@@ -145,7 +156,8 @@ async function proven() {
     const stages = PIPE.map(p => ({ key:p[0], name:p[1], status:"done",
       durationMs:(r.phases&&r.phases[p[0]])||0, elapsedMs:(r.phases&&r.phases[p[0]])||0 }));
     return { id:"B-"+r.s, rangeStart:r.s, rangeEnd:r.e, blocks:r.blocks, host:r.host||HOST, status:"proven",
-      stageIndex:stages.length, stages, gas:r.gas||0, steps:r.steps||0, txs:r.txs||0,
+      stageIndex:stages.length, stages, gas:r.gas||0, txs:r.txs||0,
+      instances:r.instances||0, main:r.main||0,
       proofBytes:r.proofBytes, txHash:null, startedAt:r.finishedAt-(r.totalMs||0), finishedAt:r.finishedAt,
       elapsedMs:r.totalMs||0, etaMs:0, note:"range-proof-only", _mt:r.finishedAt, _dur:r.totalMs||0 };
   });
@@ -177,6 +189,14 @@ const sum = (a) => a.reduce((x,y)=>x+y,0);
 function computeMetrics(recs, aggs) {
   aggs = aggs || [];
   const aggDone = aggs.filter(a => a.totalMs > 0);
+  // throughput from timed ranges only: real proving rate (no zeros, no NaN)
+  const timed = recs.filter(r => r.totalMs > 0);
+  const timedBlocks = sum(timed.map(r => r.blocks));
+  const timedMs = sum(timed.map(r => r.totalMs));
+  const secPerBlock = timedBlocks ? (timedMs / 1000) / timedBlocks : 0;
+  const blocksPerHour = timedMs ? timedBlocks / (timedMs / 3.6e6) : 0;
+  const inst = recs.filter(r => r.instances > 0);
+  const mainI = recs.filter(r => r.main > 0);
   const gas = recs.filter(r=>r.gas>0), steps = recs.filter(r=>r.steps>0);
   const wit = recs.map(r=>r.phases&&r.phases.witness||0).filter(x=>x>0);
   const prov = recs.filter(r=>r.totalMs>0).map(r=>r.totalMs-((r.phases&&r.phases.witness)||0)).filter(x=>x>0);
@@ -189,9 +209,29 @@ function computeMetrics(recs, aggs) {
     totalGas: sum(recs.map(r=>r.gas||0)), avgGasPerBlock: tb ? sum(gas.map(r=>r.gas))/tb : 0,
     totalSteps: sum(recs.map(r=>r.steps||0)), avgStepsPerBlock: tbS ? sum(steps.map(r=>r.steps))/tbS : 0,
     avgWitnessMs: avg(wit), avgProveMs: avg(prov), avgTotalMs: avg(tot), avgProofBytes: avg(sz),
-    measuredCount: tot.length, gasCount: gas.length, stepsAvailable: false,
+    measuredCount: tot.length, gasCount: gas.length,
+    secPerBlock, blocksPerHour,                                  // real throughput (timed ranges)
+    avgInstances: avg(inst.map(r=>r.instances)), avgMain: avg(mainI.map(r=>r.main)),
+    instancesAvailable: inst.length > 0, stepsAvailable: false,
     aggCount: aggs.length, avgAggMs: avg(aggDone.map(a=>a.totalMs)), aggNote: "PLONK agg every 2 ranges",
   };
+}
+
+// the loop prefetches witnesses ahead of proving -> data/10/witness-cache/<S>-<E>-stdin.bin.
+// cached-but-not-yet-proven ranges ARE the real backlog/queue.
+const WCACHE = path.join(ROOT, "data/10/witness-cache");
+function witnessQueue(provenKeys, activeKey) {
+  let fl = []; try { fl = fs.readdirSync(WCACHE); } catch {}
+  const q = [];
+  for (const f of fl) {
+    const m = f.match(/^(\d+)-(\d+)-stdin\.bin$/); if (!m) continue;
+    const s = +m[1], e = +m[2], k = s + "-" + e;
+    if (provenKeys.has(k) || k === activeKey) continue;
+    q.push({ id: "B-" + s, rangeStart: s, rangeEnd: e, blocks: e - s, status: "queued", host: HOST,
+      stageIndex: 0, stages: PIPE.map(p => ({ key: p[0], name: p[1], status: "pending", durationMs: 0, elapsedMs: 0 })),
+      gas: 0, proofBytes: 0, note: "witness cached" });
+  }
+  return q.sort((a, b) => a.rangeStart - b.rangeStart);
 }
 
 function activeJob() {
@@ -213,10 +253,14 @@ async function cycle() {
   const [cid,l1,l2] = await Promise.all([rpc(L2,"eth_chainId"), rpc(L1,"eth_blockNumber"), rpc(L2,"eth_blockNumber")]);
   const recentDurations = history.filter(j=>j._dur>0).map(j=>j._dur);
   const frontier = history.length ? Math.max(...history.map(j=>j.rangeEnd)) : null;
+  const provenKeys = new Set(history.map(j=>j.rangeStart+"-"+j.rangeEnd));
+  const queue = witnessQueue(provenKeys, active ? active.rangeStart+"-"+active.rangeEnd : null);
+  metrics.backlogRanges = queue.length;
+  metrics.backlogBlocks = queue.reduce((a,j)=>a+j.blocks,0);
   history.forEach(j=>{delete j._mt;delete j._dur});
   const snap = { connected: status==="proving", chain: CHAINS[cid]||(cid?"chain "+cid:"unknown"),
     l1Head: l1?parseInt(l1,16):0, l2Head: l2?parseInt(l2,16):0, l2ProvenFrontier: frontier,
-    provingStatus: status, active, queue: [], history, metrics, recentDurations, failedCount: 0,
+    provingStatus: status, active, queue, history, metrics, recentDurations, failedCount: 0,
     source: `${HOST} — ${status}; ${history.length} range proof(s) (no agg/settle). frontier ${frontier??"none"}, chain head ${l2?parseInt(l2,16):"?"}` };
   fs.writeFileSync(OUT, JSON.stringify(snap));
   const a = active ? `${active.id}@${active.stages[active.stageIndex]?active.stages[active.stageIndex].key:"done"}` : "idle";

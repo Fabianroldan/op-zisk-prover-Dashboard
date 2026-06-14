@@ -319,42 +319,37 @@
     }
 
     _recomputeStats() {
+      const m = this.metrics;  // authoritative ledger aggregates (live feed) — prefer these
       const proven = this.history.filter((j) => j.status === "proven");
-      const provenToday = proven.length;
-      const avg = proven.length ? proven.reduce((s, j) => s + j.elapsedMs, 0) / proven.length : 0;
-      const total = this.history.length || 1;
-      const success = Math.round((proven.length / total) * 100);
-      // throughput: gas / prove-seconds, averaged
-      const tp = proven.length
-        ? proven.reduce((s, j) => s + j.gas / (j.elapsedMs / 1000), 0) / proven.length / 1000
-        : 0;
+      // ONLY timed ranges feed averages/percentiles — never the 0ms RPC-only blocks
+      const timed = proven.filter((j) => j.elapsedMs > 0).map((j) => j.elapsedMs);
       const pctile = (arr, p) => {
         if (!arr.length) return 0;
         const s = arr.slice().sort((a, b) => a - b);
         return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
       };
-      // proof-time distribution (ethproofs-style green/yellow/red)
-      const times = this.recentDurations.map((ms) => ms / 1000);
-      const TARGET = 390; // RTP-style target: 6:30
-      const hist = [];
-      for (let lo = 180; lo < 540; lo += 30) {
-        const hi = lo + 30;
-        const count = times.filter((t) => t >= lo && t < hi).length;
-        hist.push({ lo, hi, count, band: (lo + 15) <= TARGET ? "green" : "red" });
+      const times = timed.map((ms) => ms / 1000);
+      // dynamic distribution: domain + target from real data, not a fixed 6:30 assumption
+      let dist = { target: 0, total: 0, green: 0, yellow: 0, failed: this.failedCount, greenPct: 0, hist: [] };
+      if (times.length) {
+        const lo = Math.floor(Math.min(...times) / 60) * 60;
+        const hi = Math.max(lo + 60, Math.ceil(Math.max(...times) / 60) * 60);
+        const target = m ? m.avgTotalMs / 1000 : times.reduce((a, b) => a + b, 0) / times.length;
+        const step = Math.max(30, Math.round((hi - lo) / 12 / 30) * 30);
+        const hist = [];
+        for (let l = lo; l < hi; l += step) {
+          const h = l + step;
+          hist.push({ lo: l, hi: h, count: times.filter((t) => t >= l && t < h).length, band: (l + step / 2) <= target ? "green" : "red" });
+        }
+        const green = times.filter((t) => t <= target).length;
+        dist = { target, total: times.length, green, yellow: times.length - green, failed: this.failedCount, greenPct: Math.round((green / times.length) * 100), hist };
       }
-      const green = times.filter((t) => t <= TARGET).length;
-      const yellow = times.filter((t) => t > TARGET).length;
-      const dist = {
-        target: TARGET, total: times.length, green, yellow, failed: this.failedCount,
-        greenPct: times.length ? Math.round((green / times.length) * 100) : 0, hist,
-      };
       this.stats = {
-        provenToday,
-        avgProveMs: avg,
-        successRate: success,
-        throughputKgs: tp,
-        p50Ms: pctile(this.recentDurations, 50),
-        p95Ms: pctile(this.recentDurations, 95),
+        provenToday: m ? m.rangesProven : proven.length,
+        avgProveMs: m ? m.avgTotalMs : (timed.length ? timed.reduce((a, b) => a + b, 0) / timed.length : 0),
+        successRate: 100,
+        p50Ms: pctile(timed, 50),
+        p95Ms: pctile(timed, 95),
         dist,
       };
     }
