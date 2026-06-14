@@ -496,6 +496,12 @@ function App() {
   const [now, setNow] = useState(Date.now());
   const [route, setRoute] = useState(parseHash());
 
+  // live blocks-proven counter in the browser tab title
+  useEffect(() => {
+    const n = snap.metrics ? snap.metrics.blocksProven : 0;
+    document.title = n ? `${fmtNum(n)} blocks · OP-ZisK Prover` : "OP-ZisK Prover — Live";
+  }, [snap.metrics && snap.metrics.blocksProven]);
+
   useEffect(() => {
     const unsub = window.proverFeed.subscribe(setSnap);
     // Live feed if window.OPZISK_FEED_URL is set (see index.html); else the mock.
