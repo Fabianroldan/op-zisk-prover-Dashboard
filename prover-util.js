@@ -5,7 +5,8 @@
 (function () {
   const pad = (n) => String(n).padStart(2, "0");
   function fmtClock(ms) {
-    const s = Math.max(0, Math.round(ms / 1000));
+    if (!ms || ms <= 0) return "—";
+    const s = Math.round(ms / 1000);
     return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
   }
   function fmtSecs(ms) {
@@ -40,20 +41,13 @@
   }
   function jobTotalMs(job) { return job.stages.reduce((s, x) => s + x.durationMs, 0); }
 
-  const SHORT = { witness: "Witness", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", agg: "Agg", snark: "SNARK", settle: "Settle" };
-  const FULL = { witness: "Witness gen", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", agg: "Aggregation", snark: "Final SNARK", settle: "On-chain settle" };
+  const SHORT = { witness: "Witness", prove: "Range STARK", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", agg: "Agg", snark: "SNARK", settle: "Settle" };
+  const FULL = { witness: "Witness gen", prove: "Range STARK proof", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", agg: "Aggregation", snark: "Final SNARK", settle: "On-chain settle" };
 
   function stageStatus(job, st) {
-    const p = st.durationMs ? st.elapsedMs / st.durationMs : 0;
-    const instances = Math.max(1, Math.round(job.blocks * 9));
     switch (st.key) {
-      case "witness": return { sub: `block ${Math.min(job.blocks, Math.ceil(p * job.blocks))} / ${job.blocks}`, right: `${fmtNum(job.gas)} gas` };
-      case "execute": return { sub: `executing guest ELF`, right: `${job.blocks}-block ROM` };
-      case "contrib": return { sub: `accumulating contributions`, right: `${instances} commits` };
-      case "inner": return { sub: `proving instance ${Math.min(instances, Math.ceil(p * instances))} / ${instances}`, right: `STARK` };
-      case "agg": return { sub: `folding range proofs`, right: `VADCOP` };
-      case "snark": return { sub: `wrapping PLONK · final witness`, right: `recursiveF` };
-      case "settle": return { sub: `submitting tx · awaiting inclusion`, right: job.chain };
+      case "witness": return { sub: `kona host · preimage gen`, right: st.durationMs ? fmtClock(st.durationMs) : "" };
+      case "prove": return { sub: `cargo-zisk · range STARK (VadcopFinalMinimal)`, right: st.durationMs ? fmtClock(st.durationMs) : "" };
       default: return { sub: "", right: "" };
     }
   }

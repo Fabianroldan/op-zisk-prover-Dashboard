@@ -163,9 +163,8 @@ function Rail({ snap }) {
       <div className="m"><span className="m-l">Proven</span><span className="m-v green">{s.provenToday}<span className="u">jobs</span></span></div>
       <div className="m"><span className="m-l">Avg prove</span><span className="m-v">{fmtClock(s.avgProveMs)}</span></div>
       <div className="m"><span className="m-l">p50 / p95</span><span className="m-v">{fmtClock(s.p50Ms)}<span className="u">/ {fmtClock(s.p95Ms)}</span></span></div>
-      <div className="m"><span className="m-l">Throughput</span><span className="m-v green">{s.throughputKgs.toFixed(1)}<span className="u">kgas/s</span></span></div>
-      <div className="m"><span className="m-l">Eligible</span><span className="m-v">{s.dist ? s.dist.greenPct : 0}<span className="u">%</span></span></div>
-      <div className="m"><span className="m-l">L2 head</span><span className="m-v">{fmtBlock(snap.l2Head)}</span></div>
+      <div className="m"><span className="m-l">Proven frontier</span><span className="m-v">{snap.l2ProvenFrontier ? fmtBlock(snap.l2ProvenFrontier) : "—"}</span></div>
+      <div className="m"><span className="m-l">L2 chain head</span><span className="m-v">{snap.l2Head ? fmtBlock(snap.l2Head) : "—"}</span></div>
       <div className="m grow spark"><span className="m-l">Prove time · last {snap.recentDurations.length}</span><Sparkline data={snap.recentDurations} /></div>
     </div>
   );
@@ -199,10 +198,9 @@ function CurrentJob({ job }) {
             </div>
             <h1 className="hero-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</h1>
             <div className="hero-meta">
-              <span className="mi"><b>{job.blocks}</b> blocks</span>
-              <span className="mi"><b>{fmtNum(job.gas)}</b> gas</span>
-              <span className="mi"><b>{fmtBytes(job.proofBytes)}</b> proof</span>
-              <span className="mi"><b>{fmtUSD(jobCost(job))}</b> est. cost</span>
+              <span className="mi"><b>{job.blocks}</b> block{job.blocks > 1 ? "s" : ""}</span>
+              {job.proofBytes > 0 && <span className="mi"><b>{fmtBytes(job.proofBytes)}</b> proof</span>}
+              <span className="mi">range proof (no agg/settle)</span>
             </div>
           </div>
           <div className="hero-timers">
@@ -327,7 +325,7 @@ function Dashboard({ snap, now }) {
 }
 
 // ======================= BLOCKS PAGE =======================
-const BLOCKS_COLS = "1.25fr 0.5fr 1fr 0.9fr 0.8fr 0.7fr 0.7fr 0.8fr 0.7fr";
+const BLOCKS_COLS = "1.4fr 0.5fr 1fr 0.8fr 0.7fr 0.8fr 0.7fr";
 function BlocksPage({ snap, now }) {
   const [filter, setFilter] = useState("all");
   const all = snap.history;
@@ -342,7 +340,7 @@ function BlocksPage({ snap, now }) {
         <div className="m"><span className="m-l">Avg prove</span><span className="m-v">{fmtClock(s.avgProveMs)}</span></div>
         <div className="m"><span className="m-l">p95</span><span className="m-v">{fmtClock(s.p95Ms)}</span></div>
         <div className="m"><span className="m-l">Failed</span><span className="m-v red">{s.dist ? s.dist.failed : 0}</span></div>
-        <div className="m grow"><span className="m-l">Throughput</span><span className="m-v">{s.throughputKgs.toFixed(1)}<span className="u">kgas/s</span></span></div>
+        <div className="m grow"><span className="m-l">Proven frontier</span><span className="m-v">{snap.l2ProvenFrontier ? fmtBlock(snap.l2ProvenFrontier) : "—"}</span></div>
       </div>
 
       <div className="filters">
@@ -356,7 +354,7 @@ function BlocksPage({ snap, now }) {
 
       <div className="panel-b">
         <div className="tbl-h" style={{ gridTemplateColumns: BLOCKS_COLS }}>
-          <span>Range</span><span className="r">Blocks</span><span>Cluster</span><span className="r">Gas</span><span className="r">Proof time</span><span className="r">Cost</span><span className="r">Size</span><span className="r">Status</span><span className="r">When</span>
+          <span>Range</span><span className="r">Blocks</span><span>Prover</span><span className="r">Proof time</span><span className="r">Size</span><span className="r">Status</span><span className="r">When</span>
         </div>
         <div className="tbl-scroll">
           {list.map((job) => (
@@ -367,10 +365,8 @@ function BlocksPage({ snap, now }) {
               </div>
               <div className="c-blk">{job.blocks}</div>
               <div className="c-cluster">{job.host}</div>
-              <div className="c-gas">{fmtNum(job.gas)}</div>
               <div className="c-time">{fmtClock(job.elapsedMs)}</div>
-              <div className="c-cost">{fmtUSD(jobCost(job))}</div>
-              <div className="c-size">{fmtBytes(job.proofBytes)}</div>
+              <div className="c-size">{job.proofBytes > 0 ? fmtBytes(job.proofBytes) : "—"}</div>
               <div style={{ textAlign: "right" }}><StatusTag status={job.status} /></div>
               <div className="c-when">{timeAgo(job.finishedAt)}</div>
             </div>
@@ -392,31 +388,27 @@ function BlockDetail({ job, snap, now }) {
       </div>
     );
   }
-  const total = jobTotalMs(job);
   const done = job.status === "proven" || job.status === "failed";
-  const instances = Math.max(1, Math.round(job.blocks * 9));
-  const throughput = job.elapsedMs ? (job.gas / (job.elapsedMs / 1000)) / 1000 : 0;
+  const witnessMs = job.stages[0] ? job.stages[0].durationMs : 0;
+  const proveMs = job.stages[1] ? job.stages[1].durationMs : 0;
   return (
     <div className="view">
-      <MainBar title={`${fmtBlock(job.rangeStart)} → ${fmtBlock(job.rangeEnd)}`} sub={`${job.id} · ${job.chain}`} snap={snap} now={now} back="#/blocks" />
+      <MainBar title={`${fmtBlock(job.rangeStart)} → ${fmtBlock(job.rangeEnd)}`} sub={`${job.id} · ${snap.chain}`} snap={snap} now={now} back="#/blocks" />
 
       <div className="det-head">
         <StatusTag status={job.status} />
-        <span className="det-meta"><b>{job.blocks}</b> blocks</span>
-        <span className="det-meta">cluster <b>{job.host}</b></span>
+        <span className="det-meta"><b>{job.blocks}</b> block{job.blocks > 1 ? "s" : ""}</span>
+        <span className="det-meta">prover <b>{job.host}</b></span>
         <span className="det-meta">{done ? `finished ${timeAgo(job.finishedAt)}` : job.status === "proving" ? "in progress" : "queued"}</span>
-        {job.note === "rpc-throttled" && <span className="flag">⚠ RPC throttled</span>}
       </div>
 
       <div className="mgrid det-grid">
-        <div className="mcell"><div className="ml">Proof time</div><div className="mv red">{fmtClock(job.elapsedMs)}</div></div>
-        <div className="mcell"><div className="ml">{done ? "Total" : "ETA"}</div><div className="mv">{fmtClock(done ? job.elapsedMs : job.etaMs)}</div></div>
-        <div className="mcell"><div className="ml">Gas proved</div><div className="mv">{fmtNum(job.gas)}</div></div>
-        <div className="mcell"><div className="ml">Proof size</div><div className="mv">{fmtBytes(job.proofBytes)}</div></div>
-        <div className="mcell"><div className="ml">Cost</div><div className="mv">{fmtUSD(jobCost(job))}</div></div>
-        <div className="mcell"><div className="ml">Throughput</div><div className="mv">{throughput.toFixed(1)} <span style={{ fontSize: 11, color: "var(--t3)" }}>kgas/s</span></div></div>
-        <div className="mcell"><div className="ml">Inner instances</div><div className="mv">{instances}</div></div>
+        <div className="mcell"><div className="ml">Total proof time</div><div className="mv">{fmtClock(job.elapsedMs)}</div></div>
+        <div className="mcell"><div className="ml">Witness gen</div><div className="mv">{fmtClock(witnessMs)}</div></div>
+        <div className="mcell"><div className="ml">Range STARK</div><div className="mv">{fmtClock(proveMs)}</div></div>
+        <div className="mcell"><div className="ml">Proof size</div><div className="mv">{job.proofBytes > 0 ? fmtBytes(job.proofBytes) : "—"}</div></div>
         <div className="mcell"><div className="ml">Blocks</div><div className="mv">{job.blocks}</div></div>
+        <div className="mcell"><div className="ml">Type</div><div className="mv" style={{ fontSize: 13 }}>range proof</div></div>
       </div>
 
       <div className="panel-b" style={{ marginTop: 22 }}>

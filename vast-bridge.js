@@ -30,14 +30,15 @@ function realDur(s, e) {
     const m = t.match(/Elapsed \(wall clock\) time.*?(\d+):(\d+(?:\.\d+)?)/); if (m) p = Math.round((+m[1]*60+parseFloat(m[2]))*1000); } catch {}
   return { w, p };
 }
-const stages = (w, p) => [
-  {key:"witness",name:"Witness gen",status:"done",durationMs:w,elapsedMs:w},
-  {key:"execute",name:"Execute",status:"done",durationMs:0,elapsedMs:0},
-  {key:"contrib",name:"Range STARK",status:"done",durationMs:0,elapsedMs:0},
-  {key:"inner",name:"Inner proofs",status:"done",durationMs:p,elapsedMs:p},
-  {key:"agg",name:"Aggregation (not run)",status:"pending",durationMs:0,elapsedMs:0},
-  {key:"snark",name:"Final SNARK (not run)",status:"pending",durationMs:0,elapsedMs:0},
-  {key:"settle",name:"On-chain settle (not run)",status:"pending",durationMs:0,elapsedMs:0},
+// The REAL range-proof pipeline = exactly the two phases multi --prove runs.
+// Witness gen (kona host) then the range STARK proof (cargo-zisk prove). No agg/
+// snark/settle exist in this flow, so they are NOT shown as stages.
+const DONE = (k, n, d) => ({ key: k, name: n, status: "done", durationMs: d, elapsedMs: d });
+const provenStages = (w, p) => [DONE("witness", "Witness gen", w), DONE("prove", "Range STARK proof", p)];
+// active job: idx 0 = witness running, idx 1 = STARK running
+const activeStages = (idx) => [
+  { key: "witness", name: "Witness gen", status: idx > 0 ? "done" : "active", durationMs: 0, elapsedMs: 0 },
+  { key: "prove", name: "Range STARK proof", status: idx >= 1 ? "active" : "pending", durationMs: 0, elapsedMs: 0 },
 ];
 
 function proven() {
@@ -47,7 +48,7 @@ function proven() {
       const key=m[1]+"-"+m[2]; if(seen.has(key))continue; seen.add(key);
       const st=fs.statSync(path.join(dir,f)), s=+m[1], e=+m[2], {w,p}=realDur(s,e);
       out.push({id:"B-"+s,rangeStart:s,rangeEnd:e,blocks:e-s,host:HOST,status:"proven",
-        stageIndex:4,stages:stages(w,p),gas:0,proofBytes:st.size,txHash:null,
+        stageIndex:2,stages:provenStages(w,p),gas:0,proofBytes:st.size,txHash:null,
         startedAt:st.mtimeMs-w-p,finishedAt:st.mtimeMs,elapsedMs:w+p,etaMs:0,
         note:"range-proof-only",_mt:st.mtimeMs,_dur:w+p}); } }
   return out.sort((a,b)=>b._mt-a._mt).slice(0,60);
@@ -61,9 +62,24 @@ function provingStatus() {
   return "idle";
 }
 
+// the currently-proving block, derived from the running multi process + its log
+function activeJob() {
+  let args = "";
+  try { args = cp.execSync("ps -eo args 2>/dev/null | grep 'release/multi --start' | grep -v grep | head -1").toString(); } catch {}
+  const m = args.match(/--start\s+(\d+)\s+--end\s+(\d+)/); if (!m) return null;
+  const s = +m[1], e = +m[2];
+  let txt = "";
+  for (const suf of ["prove", "execute"]) { try { txt += fs.readFileSync(path.join(LOGS, `multi-${s}-${e}-${suf}.log`), "utf8"); } catch {} }
+  const idx = /GENERATING_INNER_PROOFS|GENERATING_PROOFS|ROM SETUP|INITIALIZING_PROOFMAN/.test(txt) ? 1 : 0;
+  return { id: "B-" + s, rangeStart: s, rangeEnd: e, blocks: e - s, host: HOST, status: "proving",
+    stageIndex: idx, stages: activeStages(idx), gas: 0, proofBytes: 0, txHash: null,
+    startedAt: null, finishedAt: null, elapsedMs: 0, etaMs: 0 };
+}
+
 async function cycle() {
   const history = proven();
   const status = provingStatus();
+  const active = status === "proving" ? activeJob() : null;
   const [cid, l1, l2] = await Promise.all([rpc(L2,"eth_chainId"), rpc(L1,"eth_blockNumber"), rpc(L2,"eth_blockNumber")]);
   const chain = CHAINS[cid] || (cid ? "chain " + cid : "unknown");
   const recentDurations = history.filter(j=>j._dur>0).map(j=>j._dur);
@@ -76,7 +92,7 @@ async function cycle() {
     l2Head: l2 ? parseInt(l2,16) : 0,            // REAL chain head
     l2ProvenFrontier: frontier,                  // last proven block (≠ head)
     provingStatus: status,                       // proving | building | idle | proposer-running
-    active: null,
+    active,
     queue: [],
     history,
     recentDurations,
