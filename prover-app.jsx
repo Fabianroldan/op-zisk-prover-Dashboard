@@ -232,23 +232,32 @@ function MiniStrip({ job }) {
 }
 
 // ======================= QUEUE =======================
+const QUEUE_PAGE = 5;
 function Queue({ queue }) {
-  const totalEta = queue.reduce((s, j) => s + j.etaMs, 0);
+  const [shown, setShown] = useState(QUEUE_PAGE);
+  const visible = queue.slice(0, shown);
+  const more = queue.length - visible.length;
   return (
     <div className="panel-b">
-      <div className="sec"><span className="sec-t">Queue</span><span className="sec-c">{queue.length}</span><span className="rule"></span><span className="sec-c">pending</span></div>
+      <div className="sec"><span className="sec-t">Queue</span><span className="sec-c">{queue.length}</span><span className="rule"></span><span className="sec-c">witness-cached</span></div>
       {queue.length === 0 && <div className="empty">Queue empty</div>}
-      {queue.map((job, i) => (
+      {visible.map((job, i) => (
         <div key={job.id} className="qrow" onClick={() => nav(`#/block/${job.id}`)}>
           <span className="qpos">{pad(i + 1)}</span>
           <div>
             <div className="q-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</div>
             <div className="q-sub">{job.id} · {job.blocks} blk · {job.host}</div>
           </div>
-          <div className="q-right"><StatusTag status="queued" /><span className="q-eta">~{fmtClock(job.etaMs)}</span></div>
+          <div className="q-right"><StatusTag status="queued" /></div>
         </div>
       ))}
-      <div className="qdepth"><span className="ql">Backlog depth</span><span className="qv">{queue.reduce((s, j) => s + j.blocks, 0)} blocks · ~{fmtClock(totalEta)}</span></div>
+      {more > 0 && (
+        <div className="qmore" onClick={() => setShown(shown + QUEUE_PAGE)}>Load {Math.min(QUEUE_PAGE, more)} more · {more} hidden</div>
+      )}
+      {shown > QUEUE_PAGE && (
+        <div className="qmore" onClick={() => setShown(QUEUE_PAGE)}>Collapse</div>
+      )}
+      <div className="qdepth"><span className="ql">Backlog depth</span><span className="qv">{queue.reduce((s, j) => s + j.blocks, 0)} blocks witness-cached</span></div>
     </div>
   );
 }

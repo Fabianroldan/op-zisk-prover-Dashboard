@@ -339,6 +339,8 @@ body {
 .qdepth { margin-top: 14px; padding: 13px 14px; background: var(--card-soft); border-radius: var(--r-md); display: flex; align-items: center; gap: 11px; }
 .qdepth .ql { font-size: 12px; color: var(--t2); }
 .qdepth .qv { font-family: var(--mono); font-size: 13px; color: var(--ink); margin-left: auto; font-weight: 600; }
+.qmore { margin-top: 8px; padding: 9px 12px; text-align: center; font-size: 12px; font-weight: 600; color: var(--accent-ink, var(--t2)); background: var(--card-soft); border-radius: var(--r-md); cursor: pointer; user-select: none; transition: background .12s; }
+.qmore:hover { background: var(--line); }
 
 /* ===================== FILTERS ===================== */
 .filters { display: flex; gap: 9px; margin-top: 22px; }
