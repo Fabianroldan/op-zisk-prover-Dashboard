@@ -159,16 +159,26 @@ function Histogram({ dist }) {
           );
         })}
 
-        {/* calm charcoal bars + counts */}
-        {dist.hist.map((b, i) => {
-          const cx = xFor(b.lo + (b.hi - b.lo) / 2);
+        {/* smooth density curve: the general shape of proof times */}
+        {(() => {
+          const cen = dist.hist.map((b) => ({ x: xFor(b.lo + (b.hi - b.lo) / 2), y: yFor(b.count), c: b.count }));
+          const anchored = [{ x: cen[0].x, y: baseY }, ...cen.map((p) => ({ x: p.x, y: p.y })), { x: cen[cen.length - 1].x, y: baseY }];
+          const curve = smoothPoints(anchored, baseY);
+          const line = curve.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+          const area = `M${curve[0].x.toFixed(1)} ${baseY} ` + curve.map((p) => `L${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") + ` L${curve[curve.length - 1].x.toFixed(1)} ${baseY} Z`;
           return (
-            <g key={i}>
-              <rect x={cx - bw / 2} y={yFor(b.count)} width={bw} height={baseY - yFor(b.count)} rx="3.5" fill="var(--dark)" opacity={b.count ? 0.86 : 0} />
-              {b.count > 0 && <text x={cx} y={yFor(b.count) - 6} textAnchor="middle" fill="var(--t2)" style={{ font: "600 10px var(--mono)" }}>{b.count}</text>}
+            <g>
+              <path d={area} fill="var(--dark)" opacity="0.06" />
+              <path d={line} fill="none" stroke="var(--dark)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 5" opacity="0.85" />
+              {cen.map((p, i) => p.c > 0 && (
+                <g key={i}>
+                  <circle cx={p.x} cy={p.y} r="3.2" fill="var(--dark)" />
+                  <text x={p.x} y={p.y - 9} textAnchor="middle" fill="var(--t2)" style={{ font: "600 10px var(--mono)" }}>{p.c}</text>
+                </g>
+              ))}
             </g>
           );
-        })}
+        })()}
 
         {/* median + p95 lines (no labels — legend maps them by colour) */}
         {marks.map((mk, i) => {
