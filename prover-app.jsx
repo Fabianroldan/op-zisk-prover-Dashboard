@@ -149,7 +149,6 @@ function MainBar({ title, sub, snap, now, back }) {
           ))}
         </nav>
         <Search snap={snap} />
-        <span className={"conn-pill" + (snap.connected ? "" : " off")}><span className={"dot" + (snap.connected ? " live" : "")}></span>{snap.connected ? "Live" : "Offline"}</span>
         <span className="clock">{pad(t.getUTCHours())}<span className="sep">:</span>{pad(t.getUTCMinutes())}<span className="sep">:</span>{pad(t.getUTCSeconds())} UTC</span>
         <ThemeToggle />
         <button className="icon-btn" title="Notifications"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2a4 4 0 0 0-4 4c0 4-1.5 5-1.5 5h11S13 10 13 6a4 4 0 0 0-4-4ZM7.5 14.5a1.5 1.5 0 0 0 3 0" /></svg><span className="dotred"></span></button>
@@ -237,42 +236,38 @@ function MiniStrip({ job }) {
 }
 
 // ======================= QUEUE =======================
-const QUEUE_PAGE = 6;
 function Queue({ queue, perAgg }) {
-  const [shown, setShown] = useState(QUEUE_PAGE);
   const N = perAgg || 2;
-  const visible = queue.slice(0, shown);
-  const more = queue.length - visible.length;
   return (
     <div className="panel-b">
       <div className="sec"><span className="sec-t">Queue</span><span className="sec-c">{queue.length}</span><span className="rule"></span><span className="sec-c">witness-cached · range proofs</span></div>
       {queue.length === 0 && <div className="empty">Queue empty</div>}
-      {visible.map((job, i) => {
-        // after every N range proofs an aggregation fires — show the divider + which ranges it spans
-        const aggBoundary = (i + 1) % N === 0;
-        const grp = visible.slice(i - N + 1, i + 1);
-        return (
-          <React.Fragment key={job.id}>
-            <div className="qrow" onClick={() => nav(`#/block/${job.id}`)}>
-              <span className="qpos">{pad(i + 1)}</span>
-              <div>
-                <div className="q-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</div>
-                <div className="q-sub">range proof · {job.blocks} blk</div>
+      <div className="q-scroll">
+        {queue.map((job, i) => {
+          // after every N range proofs an aggregation fires — show the divider + which ranges it spans
+          const aggBoundary = (i + 1) % N === 0;
+          const grp = queue.slice(i - N + 1, i + 1);
+          return (
+            <React.Fragment key={job.id + "-" + i}>
+              <div className="qrow" onClick={() => nav(`#/block/${job.id}`)}>
+                <span className="qpos">{pad(i + 1)}</span>
+                <div>
+                  <div className="q-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</div>
+                  <div className="q-sub">range proof · {job.blocks} blk</div>
+                </div>
+                <div className="q-right"><span className="qtag range">range</span></div>
               </div>
-              <div className="q-right"><span className="qtag range">range</span></div>
-            </div>
-            {aggBoundary && grp.length === N && (
-              <div className="qagg">
-                <span className="qagg-i">⊕</span>
-                <span className="qagg-t">PLONK agg · {N} ranges · {grp.reduce((s, g) => s + g.blocks, 0)} blocks</span>
-                <span className="qagg-r">{fmtBlock(grp[0].rangeStart)} → {fmtBlock(grp[grp.length - 1].rangeEnd)}</span>
-              </div>
-            )}
-          </React.Fragment>
-        );
-      })}
-      {more > 0 && <div className="qmore" onClick={() => setShown(shown + QUEUE_PAGE)}>Load {Math.min(QUEUE_PAGE, more)} more · {more} hidden</div>}
-      {shown > QUEUE_PAGE && <div className="qmore" onClick={() => setShown(QUEUE_PAGE)}>Collapse</div>}
+              {aggBoundary && grp.length === N && (
+                <div className="qagg">
+                  <span className="qagg-i">⊕</span>
+                  <span className="qagg-t">PLONK agg · {N} ranges · {grp.reduce((s, g) => s + g.blocks, 0)} blocks</span>
+                  <span className="qagg-r">{fmtBlock(grp[0].rangeStart)} → {fmtBlock(grp[grp.length - 1].rangeEnd)}</span>
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
       <div className="qdepth"><span className="ql">Backlog depth</span><span className="qv">{queue.length} ranges · {queue.reduce((s, j) => s + j.blocks, 0)} blocks witness-cached</span></div>
     </div>
   );
@@ -381,25 +376,22 @@ function Dashboard({ snap, now }) {
 
 // ======================= AGGREGATIONS =======================
 function AggList({ aggs }) {
-  const [shown, setShown] = useState(5);
   if (!aggs || !aggs.length) return null;
-  const visible = aggs.slice(0, shown);
-  const more = aggs.length - visible.length;
   return (
     <div className="panel-b" style={{ marginTop: 24 }}>
       <div className="sec"><span className="sec-t">Aggregations</span><span className="sec-c">{aggs.length}</span><span className="rule"></span><span className="sec-c">PLONK · batches of range proofs</span></div>
-      {visible.map((a) => (
-        <div key={a.id} className="qrow" onClick={() => nav(`#/block/${a.id}`)}>
-          <span className="qpos agg">⊕</span>
-          <div>
-            <div className="q-range">{fmtBlock(a.rangeStart)}<span className="arw">→</span>{fmtBlock(a.rangeEnd)}</div>
-            <div className="q-sub">{a.ranges} ranges · {a.blocks} blocks{a.snarkMs ? ` · SNARK ${fmtSecs(a.snarkMs)}` : ""}</div>
+      <div className="q-scroll">
+        {aggs.map((a, i) => (
+          <div key={a.id + "-" + i} className="qrow" onClick={() => nav(`#/block/${a.id}`)}>
+            <span className="qpos agg">⊕</span>
+            <div>
+              <div className="q-range">{fmtBlock(a.rangeStart)}<span className="arw">→</span>{fmtBlock(a.rangeEnd)}</div>
+              <div className="q-sub">{a.ranges} ranges · {a.blocks} blocks{a.snarkMs ? ` · SNARK ${fmtSecs(a.snarkMs)}` : ""}</div>
+            </div>
+            <div className="q-right"><span className="qtag agg">agg</span><span className="q-eta">{fmtDur(a.elapsedMs)}</span></div>
           </div>
-          <div className="q-right"><span className="qtag agg">agg</span><span className="q-eta">{fmtDur(a.elapsedMs)}</span></div>
-        </div>
-      ))}
-      {more > 0 && <div className="qmore" onClick={() => setShown(shown + 8)}>Load {Math.min(8, more)} more · {more} hidden</div>}
-      {shown > 5 && <div className="qmore" onClick={() => setShown(5)}>Collapse</div>}
+        ))}
+      </div>
     </div>
   );
 }
