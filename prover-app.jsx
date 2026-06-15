@@ -26,7 +26,7 @@ function ThemeToggle() {
     setDark(!dark);
   };
   return (
-    <button className="sb-item" type="button" title={dark ? "Light mode" : "Dark mode"} onClick={flip}>
+    <button className="icon-btn" type="button" title={dark ? "Light mode" : "Dark mode"} onClick={flip}>
       {dark ? (
         <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M15 10.2A6.2 6.2 0 1 1 7.8 3a4.8 4.8 0 0 0 7.2 7.2Z" />
@@ -128,6 +128,8 @@ function Search({ snap }) {
 // ======================= TOP BAR (greeting + search) =======================
 function MainBar({ title, sub, snap, now, back }) {
   const t = new Date(now);
+  const r = parseHash();
+  const tabs = [{ k: "dashboard", label: "Live", hash: "#/" }, { k: "blocks", label: "Blocks", hash: "#/blocks" }];
   return (
     <div className="apphead">
       <div className="ah-left">
@@ -141,9 +143,15 @@ function MainBar({ title, sub, snap, now, back }) {
         </div>
       </div>
       <div className="ah-right">
+        <nav className="ah-nav">
+          {tabs.map((tb) => (
+            <a key={tb.k} className={"ah-tab" + (r.name === tb.k ? " on" : "")} href={tb.hash} onClick={(e) => { e.preventDefault(); nav(tb.hash); }}>{tb.label}</a>
+          ))}
+        </nav>
         <Search snap={snap} />
         <span className={"conn-pill" + (snap.connected ? "" : " off")}><span className={"dot" + (snap.connected ? " live" : "")}></span>{snap.connected ? "Live" : "Offline"}</span>
         <span className="clock">{pad(t.getUTCHours())}<span className="sep">:</span>{pad(t.getUTCMinutes())}<span className="sep">:</span>{pad(t.getUTCSeconds())} UTC</span>
+        <ThemeToggle />
         <button className="icon-btn" title="Notifications"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2a4 4 0 0 0-4 4c0 4-1.5 5-1.5 5h11S13 10 13 6a4 4 0 0 0-4-4ZM7.5 14.5a1.5 1.5 0 0 0 3 0" /></svg><span className="dotred"></span></button>
       </div>
     </div>
@@ -466,7 +474,7 @@ function ProofExplainer({ job }) {
         </div>
       ) : (
         <div className="xp">
-          <p>Monolithic OP validity proof for the contiguous interval <code>({fmtBlock(s)}, {fmtBlock(e)}]</code> — proves blocks <b>{fmtBlock(s + 1)}–{fmtBlock(e)}</b> ({n} block{n > 1 ? "s" : ""}). Block <b>{fmtBlock(s)}</b> is the pre-state anchor (<code>l2PreRoot</code>), not itself proved.</p>
+          <p>OP validity proof for the contiguous interval <code>({fmtBlock(s)}, {fmtBlock(e)}]</code> — proves blocks <b>{fmtBlock(s + 1)}–{fmtBlock(e)}</b> ({n} block{n > 1 ? "s" : ""}). Block <b>{fmtBlock(s)}</b> is the pre-state anchor (<code>l2PreRoot</code>), not itself proved.</p>
           <p>Inside ZisK, Kona runs the OP derivation pipeline (L1 data · batches · blobs · preimages) → canonical L2 payloads, then executes them under OP-EVM rules with ZisK precompile routing. The output root computed at block {fmtBlock(e)} must equal the claimed <code>l2PostRoot</code>.</p>
           <div className="xfields"><span>publicly commits</span><b>l1Head · l2PreRoot · l2PostRoot · l2BlockNumber · rollupConfigHash</b></div>
         </div>
@@ -619,7 +627,6 @@ function App() {
 
   return (
     <div className="shell">
-      <Sidebar route={route} snap={snap} onNav={nav} />
       <main className="main">{content}</main>
     </div>
   );

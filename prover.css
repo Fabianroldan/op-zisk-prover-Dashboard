@@ -100,7 +100,7 @@ body {
 .tnum { font-variant-numeric: tabular-nums; }
 
 /* ===================== SHELL + SIDEBAR (floating icon rail) ===================== */
-.shell { display: flex; min-height: 100vh; gap: 0; }
+.shell { min-height: 100vh; }
 .sidebar {
   width: 88px; flex: 0 0 88px; position: sticky; top: 0; align-self: flex-start;
   height: 100vh; padding: 18px 0;
@@ -134,11 +134,16 @@ body {
 .sb-sep { width: 28px; height: 1px; background: var(--line); margin: 6px 0; }
 .sb-avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--dark); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; margin-top: auto; }
 
-.main { flex: 1; min-width: 0; padding: 0 30px 40px 6px; }
+.main { min-width: 0; padding: 4px 34px 48px; max-width: 1660px; margin: 0 auto; }
+/* header nav tabs (replaces the sidebar) */
+.ah-nav { display: flex; align-items: center; gap: 4px; margin-right: 6px; }
+.ah-tab { font-size: 13.5px; font-weight: 600; color: var(--t2); text-decoration: none; padding: 8px 14px; border-radius: 999px; transition: background .14s, color .14s; }
+.ah-tab:hover { color: var(--ink); background: var(--card-soft); }
+.ah-tab.on { color: #fff; background: var(--dark); box-shadow: 0 4px 12px rgba(43,51,38,0.22); }
 .view { max-width: 1560px; }
 
 /* ===================== HEADER (greeting + search) ===================== */
-.apphead { display: flex; align-items: center; justify-content: space-between; gap: 26px; padding: 26px 4px 22px; }
+.apphead { display: flex; align-items: center; justify-content: space-between; gap: 26px; padding: 20px 0 18px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
 .ah-left { display: flex; align-items: center; gap: 16px; }
 .ah-back { width: 42px; height: 42px; border-radius: 13px; border: none; background: var(--card); box-shadow: var(--sh-sm); color: var(--t2); font-size: 18px; cursor: pointer; }
 .ah-back:hover { color: var(--ink); }
@@ -430,23 +435,14 @@ body {
 
 /* ---- phones / tablets ---- */
 @media (max-width: 760px) {
-  /* sidebar -> horizontal sticky top bar */
-  .shell { flex-direction: column; }
-  .sidebar { width: 100%; flex: none; height: auto; position: sticky; top: 0; z-index: 50;
-    flex-direction: row; align-items: center; gap: 0; padding: 8px 12px; background: var(--bg); }
-  .sb-rail { flex: none; flex-direction: row; border-radius: 30px; padding: 7px 10px; gap: 5px; width: 100%; align-items: center; }
-  .sb-logo { flex-direction: row; gap: 4px; margin-bottom: 0; margin-right: 4px; }
-  .sb-sep { width: 1px; height: 22px; margin: 0 4px; }
-  .sb-spacer { flex: 1; min-height: 0; }
-  .sb-item { width: 38px; height: 38px; }
-
-  .main { padding: 0 14px 32px; }
+  .main { padding: 4px 14px 32px; }
   .view { max-width: 100%; }
 
-  /* header stacks */
+  /* header stacks; nav tabs + controls wrap below brand */
   .apphead { flex-direction: column; align-items: flex-start; gap: 12px; }
   .ah-right { width: 100%; flex-wrap: wrap; gap: 10px; }
-  .search-wrap, .search { min-width: 0; width: 100%; flex: 1 1 auto; }
+  .ah-nav { order: -1; }
+  .search-wrap, .search { min-width: 0; flex: 1 1 140px; }
   .clock { margin-left: auto; }
 
   /* metric rail wraps to 2-up */
