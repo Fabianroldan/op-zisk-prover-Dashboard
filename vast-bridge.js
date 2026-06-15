@@ -305,7 +305,7 @@ async function cycle() {
   const snap = { connected: status==="proving", chain: CHAINS[cid]||(cid?"chain "+cid:"unknown"),
     l1Head: l1?parseInt(l1,16):0, l2Head: l2?parseInt(l2,16):0, l2ProvenFrontier: frontier,
     provingStatus: status, active, queue, history, metrics, recentDurations, failedCount: 0, gpuUtil,
-    source: `${history.length} ranges proven · frontier ${frontier??"—"} · chain head ${l2?parseInt(l2,16):"?"}` };
+    source: `${metrics.rangesProven} ranges · ${metrics.blocksProven} blocks proven · frontier ${frontier??"—"} · head ${l2?parseInt(l2,16):"?"}` };
   fs.writeFileSync(OUT, JSON.stringify(snap));
   const a = active ? `${active.id}@${active.stages[active.stageIndex]?active.stages[active.stageIndex].key:"done"}` : "idle";
   process.stdout.write(`\r[vast] ${status} active=${a} proven=${history.length} head=${l2?parseInt(l2,16):"?"}   `);
