@@ -330,20 +330,19 @@
         return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
       };
       const times = timed.map((ms) => ms / 1000);
-      // dynamic distribution: domain + target from real data, not a fixed 6:30 assumption
-      let dist = { target: 0, total: 0, green: 0, yellow: 0, failed: this.failedCount, greenPct: 0, hist: [] };
+      // honest distribution: just the spread of range proof times + median/p95 markers
+      let dist = { total: 0, p50: 0, p95: 0, fastest: 0, slowest: 0, hist: [] };
       if (times.length) {
         const lo = Math.floor(Math.min(...times) / 60) * 60;
         const hi = Math.max(lo + 60, Math.ceil(Math.max(...times) / 60) * 60);
-        const target = m ? m.avgTotalMs / 1000 : times.reduce((a, b) => a + b, 0) / times.length;
         const step = Math.max(30, Math.round((hi - lo) / 12 / 30) * 30);
         const hist = [];
         for (let l = lo; l < hi; l += step) {
           const h = l + step;
-          hist.push({ lo: l, hi: h, count: times.filter((t) => t >= l && t < h).length, band: (l + step / 2) <= target ? "green" : "red" });
+          hist.push({ lo: l, hi: h, count: times.filter((t) => t >= l && t < h).length });
         }
-        const green = times.filter((t) => t <= target).length;
-        dist = { target, total: times.length, green, yellow: times.length - green, failed: this.failedCount, greenPct: Math.round((green / times.length) * 100), hist };
+        dist = { total: times.length, p50: pctile(timed, 50) / 1000, p95: pctile(timed, 95) / 1000,
+          fastest: Math.min(...times), slowest: Math.max(...times), hist };
       }
       this.stats = {
         provenToday: m ? m.rangesProven : proven.length,

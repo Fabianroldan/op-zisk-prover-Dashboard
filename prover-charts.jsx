@@ -124,46 +124,31 @@ function smoothPoints(pts, baseY, perSeg = 18) {
   return out;
 }
 
-function Histogram({ dist, height = 168 }) {
-  if (!dist || !dist.hist.length) return <div className="empty">No data</div>;
+function Histogram({ dist }) {
+  if (!dist || !dist.hist.length) return <div className="empty">No data yet</div>;
 
   const W = 640, H = 200;
-  const padL = 30, padR = 16, padT = 16, padB = 30;
+  const padL = 26, padR = 16, padT = 18, padB = 28;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const baseY = padT + plotH;
 
-  const LO = dist.hist[0].lo, HI = dist.hist[dist.hist.length - 1].hi; // 180 .. 540 s
+  const LO = dist.hist[0].lo, HI = dist.hist[dist.hist.length - 1].hi;
   const max = Math.max(1, ...dist.hist.map((b) => b.count));
   const xFor = (sec) => padL + ((sec - LO) / (HI - LO)) * plotW;
-  const yFor = (count) => padT + plotH - (count / max) * plotH;
-  const targetX = xFor(dist.target);
+  const yFor = (count) => baseY - (count / max) * plotH;
+  const fmtT = (sec) => `${Math.floor(sec / 60)}:${_pad(Math.round(sec) % 60)}`;
+  const bw = (plotW / dist.hist.length) * 0.7;
 
-  // anchor curve to baseline at both domain edges, peak at each bin centre
-  const pts = [{ x: xFor(LO), y: baseY }, ...dist.hist.map((b) => ({ x: xFor(b.lo + 15), y: yFor(b.count) })), { x: xFor(HI), y: baseY }];
-  const curve = smoothPoints(pts, baseY);
-  const linePath = curve.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
-  const areaPath = `M${curve[0].x.toFixed(1)} ${baseY} ` + curve.map((p) => `L${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") + ` L${curve[curve.length - 1].x.toFixed(1)} ${baseY} Z`;
-
-  // y gridlines at 0, mid, max
   const yTicks = [0, Math.ceil(max / 2), max].filter((v, i, a) => a.indexOf(v) === i);
+  const marks = [
+    { x: dist.p50, label: "median", color: "var(--accent)" },
+    { x: dist.p95, label: "p95", color: "var(--coral)" },
+  ];
 
   return (
     <div className="hist">
       <svg className="hist-svg" viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
-        <defs>
-          <linearGradient id="distGreen" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--good)" stopOpacity="0.34" />
-            <stop offset="100%" stopColor="var(--good)" stopOpacity="0.02" />
-          </linearGradient>
-          <linearGradient id="distRed" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--coral)" stopOpacity="0.30" />
-            <stop offset="100%" stopColor="var(--coral)" stopOpacity="0.02" />
-          </linearGradient>
-          <clipPath id="clipGreen"><rect x="0" y="0" width={targetX} height={H} /></clipPath>
-          <clipPath id="clipRed"><rect x={targetX} y="0" width={W - targetX} height={H} /></clipPath>
-        </defs>
-
-        {/* gridlines + y labels */}
+        {/* y gridlines */}
         {yTicks.map((v, i) => {
           const y = yFor(v);
           return (
@@ -174,40 +159,43 @@ function Histogram({ dist, height = 168 }) {
           );
         })}
 
-        {/* split density fill */}
-        <path d={areaPath} fill="url(#distGreen)" clipPath="url(#clipGreen)" />
-        <path d={areaPath} fill="url(#distRed)" clipPath="url(#clipRed)" />
-        <path d={linePath} fill="none" stroke="var(--good)" strokeWidth="2" strokeLinejoin="round" clipPath="url(#clipGreen)" />
-        <path d={linePath} fill="none" stroke="var(--coral)" strokeWidth="2" strokeLinejoin="round" clipPath="url(#clipRed)" />
+        {/* single-tone bars + counts */}
+        {dist.hist.map((b, i) => {
+          const cx = xFor(b.lo + (b.hi - b.lo) / 2);
+          return (
+            <g key={i}>
+              <rect x={cx - bw / 2} y={yFor(b.count)} width={bw} height={baseY - yFor(b.count)} rx="3" fill="var(--accent)" opacity={b.count ? 0.82 : 0} />
+              {b.count > 0 && <text x={cx} y={yFor(b.count) - 6} textAnchor="middle" fill="var(--t2)" style={{ font: "600 10px var(--mono)" }}>{b.count}</text>}
+            </g>
+          );
+        })}
 
-        {/* bin markers + counts */}
-        {dist.hist.map((b, i) => b.count > 0 && (
-          <g key={i}>
-            <circle cx={xFor(b.lo + 15)} cy={yFor(b.count)} r="2.6" fill={(b.lo + 15) <= dist.target ? "var(--good)" : "var(--coral)"} />
-            <text x={xFor(b.lo + 15)} y={yFor(b.count) - 7} textAnchor="middle" fill="var(--t2)" style={{ font: "600 10px var(--mono)" }}>{b.count}</text>
-          </g>
-        ))}
+        {/* median + p95 markers */}
+        {marks.map((mk, i) => {
+          const x = Math.max(padL, Math.min(W - padR, xFor(mk.x)));
+          return (
+            <g key={i}>
+              <line x1={x} y1={padT - 2} x2={x} y2={baseY} stroke={mk.color} strokeWidth="1.4" strokeDasharray="4 3" />
+              <g transform={`translate(${Math.min(x + 4, W - padR - 70)}, ${padT - 2})`}>
+                <rect x="0" y="-2" width="68" height="15" rx="3.5" fill={mk.color} opacity="0.14" />
+                <text x="5" y="9" fill={mk.color} style={{ font: "600 9.5px var(--mono)" }}>{mk.label} {fmtT(mk.x)}</text>
+              </g>
+            </g>
+          );
+        })}
 
-        {/* target threshold */}
-        <line x1={targetX} y1={padT - 4} x2={targetX} y2={baseY} stroke="var(--accent)" strokeWidth="1.4" strokeDasharray="4 3" />
-        <g transform={`translate(${Math.min(targetX, W - padR - 96)}, ${padT - 4})`}>
-          <rect x="4" y="-2" width="92" height="15" rx="3.5" fill="var(--accent-soft)" />
-          <text x="9" y="9" fill="var(--accent-ink)" style={{ font: "600 9.5px var(--mono)" }}>target {_fmtClock(dist.target * 1000)}</text>
-        </g>
-
-        {/* x axis labels (every other bin) */}
+        {/* x axis labels */}
         {dist.hist.map((b, i) => i % 2 === 0 && (
-          <text key={i} x={xFor(b.lo)} y={H - 9} textAnchor="middle" fill="var(--t3)" style={{ font: "500 10px var(--mono)" }}>
-            {`${Math.floor(b.lo / 60)}:${_pad(b.lo % 60)}`}
-          </text>
+          <text key={i} x={xFor(b.lo)} y={H - 8} textAnchor="middle" fill="var(--t3)" style={{ font: "500 10px var(--mono)" }}>{fmtT(b.lo)}</text>
         ))}
-        <text x={W - padR} y={H - 9} textAnchor="end" fill="var(--t3)" style={{ font: "500 10px var(--mono)" }}>{`${Math.floor(HI / 60)}:${_pad(HI % 60)}`}</text>
+        <text x={W - padR} y={H - 8} textAnchor="end" fill="var(--t3)" style={{ font: "500 10px var(--mono)" }}>{fmtT(HI)}</text>
       </svg>
 
       <div className="hist-legend">
-        <span className="hl"><i className="sw green"></i><b>{dist.green}</b><span className="hl-t">on target</span></span>
-        <span className="hl"><i className="sw red"></i><b>{dist.yellow}</b><span className="hl-t">over target</span></span>
-        <span className="hl grow"><span className="hl-t">eligible rate</span><b className="elig">{dist.greenPct}%</b></span>
+        <span className="hl"><span className="hl-t">fastest</span><b>{fmtT(dist.fastest)}</b></span>
+        <span className="hl"><span className="hl-t">median</span><b>{fmtT(dist.p50)}</b></span>
+        <span className="hl"><span className="hl-t">p95</span><b>{fmtT(dist.p95)}</b></span>
+        <span className="hl grow"><span className="hl-t">slowest</span><b>{fmtT(dist.slowest)}</b></span>
       </div>
     </div>
   );

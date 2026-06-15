@@ -416,10 +416,10 @@ function BlocksPage({ snap, now }) {
       <MainBar title="Blocks" sub="every proven & failed OP range" snap={snap} now={now} />
       <div className="rail">
         <div className="m"><span className="m-l">Total ranges</span><span className="m-v">{all.length}</span></div>
-        <div className="m"><span className="m-l">Eligible rate</span><span className="m-v green">{s.dist ? s.dist.greenPct : 0}<span className="u">%</span></span></div>
-        <div className="m"><span className="m-l">Avg prove</span><span className="m-v">{fmtClock(s.avgProveMs)}</span></div>
-        <div className="m"><span className="m-l">p95</span><span className="m-v">{fmtClock(s.p95Ms)}</span></div>
-        <div className="m"><span className="m-l">Failed</span><span className="m-v red">{s.dist ? s.dist.failed : 0}</span></div>
+        <div className="m"><span className="m-l">Blocks proven</span><span className="m-v green">{snap.metrics ? fmtNum(snap.metrics.blocksProven) : all.length}</span></div>
+        <div className="m"><span className="m-l">Median / range</span><span className="m-v">{fmtDur(s.avgProveMs)}</span></div>
+        <div className="m"><span className="m-l">p95</span><span className="m-v">{fmtDur(s.p95Ms)}</span></div>
+        <div className="m"><span className="m-l">Throughput</span><span className="m-v">{snap.metrics && snap.metrics.blocksPerHour ? snap.metrics.blocksPerHour.toFixed(1) : "—"}<span className="u">blk/hr</span></span></div>
         <div className="m grow"><span className="m-l">Proven frontier</span><span className="m-v">{snap.l2ProvenFrontier ? fmtBlock(snap.l2ProvenFrontier) : "—"}</span></div>
       </div>
 
