@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="prover.css?v=16" />
+<link rel="stylesheet" href="prover.css?v=17" />
 <script>
   // apply saved theme before first paint (no flash)
   try { var t = localStorage.getItem("opzisk-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
@@ -28,12 +28,12 @@
 <script>window.OPZISK_FEED_URL = "./status.json";</script>
 
 <!-- data + util layers (plain JS, websocket-ready). Create window.proverFeed. -->
-<script src="prover-data.js?v=16"></script>
-<script src="prover-util.js?v=16"></script>
+<script src="prover-data.js?v=17"></script>
+<script src="prover-util.js?v=17"></script>
 <script>window.proverFeed = new ProverFeed();</script>
 
 <!-- chart components, then app shell -->
-<script type="text/babel" src="prover-charts.jsx?v=16"></script>
-<script type="text/babel" src="prover-app.jsx?v=16"></script>
+<script type="text/babel" src="prover-charts.jsx?v=17"></script>
+<script type="text/babel" src="prover-app.jsx?v=17"></script>
 </body>
 </html>

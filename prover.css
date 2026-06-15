@@ -114,10 +114,10 @@ body {
 }
 .sb-spacer { flex: 1; min-height: 12px; }
 /* OP × ZisK header wordmark (top-left, above page title) */
-.ah-brand { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin-bottom: 8px; }
-.ah-brand .wm-op { font-weight: 800; font-size: 15px; letter-spacing: -0.03em; color: var(--ink); }
-.ah-brand .wm-x { font-size: 11px; color: var(--t3); font-weight: 500; }
-.ah-brand .wm-zisk { font-weight: 800; font-size: 15px; letter-spacing: -0.03em;
+.ah-brand { display: inline-flex; align-items: center; gap: 11px; cursor: pointer; margin-bottom: 10px; }
+.ah-brand .wm-op { font-weight: 800; font-size: 30px; letter-spacing: -0.035em; color: var(--ink); line-height: 1; }
+.ah-brand .wm-x { font-size: 18px; color: var(--t3); font-weight: 500; }
+.ah-brand .wm-zisk { font-weight: 800; font-size: 30px; letter-spacing: -0.035em; line-height: 1;
   background: linear-gradient(95deg, #7DF59A, #29C463); -webkit-background-clip: text; background-clip: text; color: transparent; }
 /* stalled states */
 .live-tag.stalled { background: rgba(229,72,77,0.14); color: var(--coral); }
