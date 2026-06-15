@@ -145,6 +145,7 @@
         active: this.active,
         queue: this.queue.slice(),
         history: this.history.slice(),
+        aggregations: this.aggregations || [],
         recentDurations: this.recentDurations.slice(-44),
         stats: this.stats,
         metrics: this.metrics || null,            // rich ledger aggregates (live feed only)

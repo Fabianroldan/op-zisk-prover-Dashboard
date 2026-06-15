@@ -166,20 +166,39 @@ async function proven() {
 
 // aggregation runs every RANGES_PER_AGG ranges -> agg-<first>-to-<last>.log.
 // <<< NAME (Xms) phase markers are universal here, so summing them = real agg compute time.
+// agg-proof pipeline phases (from real agg-*.log)
+const AGG_PIPE = [
+  ["setup", "Prover setup", /<<< INITIALIZING_PROOFMAN \((\d+)ms\)/],
+  ["execute", "Execute", /<<< EXECUTE \((\d+)ms\)/],
+  ["contrib", "Contributions", /<<< CALCULATING_CONTRIBUTIONS \((\d+)ms\)/],
+  ["inner", "Inner proofs", /<<< GENERATING_INNER_PROOFS \((\d+)ms\)/],
+  ["snark", "SNARK wrap", /<<< GENERATING_WRAPPER_SNARK_PROOF \((\d+)ms\)/],
+];
 function aggRecords() {
   let fl = []; try { fl = fs.readdirSync(LOGS); } catch {}
   const out = [];
   for (const f of fl) {
     // real name: agg-<firstStart>-<firstEnd>-to-<lastStart>-<lastEnd>.log
-    const m = f.match(/^agg-(\d+)-\d+-to-\d+-(\d+)\.log$/); if (!m) continue;
+    const m = f.match(/^agg-(\d+)-(\d+)-to-(\d+)-(\d+)\.log$/); if (!m) continue;
     let txt = ""; try { txt = fs.readFileSync(path.join(LOGS, f), "utf8").replace(/\x1b\[[0-9;]*m/g, ""); } catch { continue; }
+    const fs0 = +m[1], fe = +m[2], le = +m[4];
+    const rangeSize = (fe - fs0) || 5;
+    const ranges = Math.max(1, Math.round((le - fs0) / rangeSize));
+    const stages = AGG_PIPE.map(p => { const mm = txt.match(p[2]); const d = mm ? +mm[1] : 0; return { key: p[0], name: p[1], status: "done", durationMs: d, elapsedMs: d }; });
     let totalMs = 0; for (const mm of txt.matchAll(/<<< [A-Z_]+ \((\d+)ms\)/g)) totalMs += +mm[1];
     const snarkM = txt.match(/<<< GENERATING_WRAPPER_SNARK_PROOF \((\d+)ms\)/);
     const done = /Aggregation proof generated|Proof artifacts saved/i.test(txt);
     const st = fs.statSync(path.join(LOGS, f));
-    out.push({ first: +m[1], last: +m[2], blocks: (+m[2]) - (+m[1]), totalMs, snarkMs: snarkM ? +snarkM[1] : 0, done, finishedAt: st.mtimeMs });
+    out.push({ first: fs0, last: le, blocks: le - fs0, ranges, totalMs, snarkMs: snarkM ? +snarkM[1] : 0, stages, done, finishedAt: st.mtimeMs });
   }
   return out.sort((a, b) => b.finishedAt - a.finishedAt);
+}
+// shape an agg record as a clickable job (kind:"agg") for the dashboard
+function aggJob(a) {
+  return { id: "AGG-" + a.first, kind: "agg", rangeStart: a.first, rangeEnd: a.last, blocks: a.blocks, ranges: a.ranges,
+    host: HOST, status: "proven", stages: a.stages, stageIndex: a.stages.length, gas: 0, txs: 0, instances: 0,
+    proofBytes: 0, snarkMs: a.snarkMs, txHash: null, startedAt: a.finishedAt - a.totalMs, finishedAt: a.finishedAt,
+    elapsedMs: a.totalMs, etaMs: 0, note: "plonk-agg" };
 }
 
 // aggregates over the durable ledger — averaged ONLY over records that actually carry the
@@ -232,7 +251,9 @@ function computeMetrics(recs, aggs) {
     secPerBlock, blocksPerHour,                                  // real throughput (timed ranges)
     avgInstances: avg(inst.map(r=>r.instances)), avgMain: avg(mainI.map(r=>r.main)),
     instancesAvailable: inst.length > 0, stepsAvailable: false,
-    aggCount: aggs.length, avgAggMs: avg(aggDone.map(a=>a.totalMs)), aggNote: "PLONK agg every 2 ranges",
+    aggCount: aggs.length, avgAggMs: avg(aggDone.map(a=>a.totalMs)),
+    avgAggSnarkMs: avg(aggDone.map(a=>a.snarkMs).filter(x=>x>0)),
+    rangesPerAgg: aggs.length ? aggs[0].ranges : 2, aggNote: "PLONK aggregation",
   };
 }
 
@@ -298,13 +319,14 @@ async function cycle() {
   const queue = witnessQueue(provenKeys, active ? active.rangeStart+"-"+active.rangeEnd : null);
   metrics.backlogRanges = queue.length;
   metrics.backlogBlocks = queue.reduce((a,j)=>a+j.blocks,0);
+  const aggregations = aggRecords().slice(0, 40).map(aggJob);
   history.forEach(j=>{delete j._mt;delete j._dur});
   // GPU utilization (stall corroboration + display)
   const gpu = sh("nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits").split("\n").map(x=>parseInt(x)).filter(x=>!isNaN(x));
   const gpuUtil = gpu.length ? Math.round(gpu.reduce((a,b)=>a+b,0)/gpu.length) : null;
   const snap = { connected: status==="proving", chain: CHAINS[cid]||(cid?"chain "+cid:"unknown"),
     l1Head: l1?parseInt(l1,16):0, l2Head: l2?parseInt(l2,16):0, l2ProvenFrontier: frontier,
-    provingStatus: status, active, queue, history, metrics, recentDurations, failedCount: 0, gpuUtil,
+    provingStatus: status, active, queue, history, aggregations, metrics, recentDurations, failedCount: 0, gpuUtil,
     source: `${metrics.rangesProven} ranges · ${metrics.blocksProven} blocks proven · frontier ${frontier??"—"} · head ${l2?parseInt(l2,16):"?"}` };
   fs.writeFileSync(OUT, JSON.stringify(snap));
   const a = active ? `${active.id}@${active.stages[active.stageIndex]?active.stages[active.stageIndex].key:"done"}` : "idle";

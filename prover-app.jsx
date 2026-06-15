@@ -48,24 +48,18 @@ function Sidebar({ route, snap, onNav }) {
   ];
   return (
     <aside className="sidebar">
-      <div className="sb-brand wordmark" onClick={() => onNav("#/")} title="OP × ZisK">
-        <span className="wm-op">OP</span>
-        <span className="wm-x">×</span>
-        <span className="wm-zisk">ZisK</span>
-      </div>
       <div className="sb-rail">
         {items.map((it) => (
           <a key={it.key} className={"sb-item" + (route.name === it.key ? " on" : "")} title={it.label} href={it.hash} onClick={(e) => { e.preventDefault(); onNav(it.hash); }}>
             <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{it.icon}</svg>
           </a>
         ))}
-        <div className="sb-sep"></div>
+        <div className="sb-spacer"></div>
         <ThemeToggle />
-        <button className="sb-item" type="button" title="Sign out" onClick={() => { if (window.confirm("Sign out and reset the dashboard?")) window.location.reload(); }}>
+        <button className="sb-item" type="button" title="Sign out" onClick={() => { if (window.confirm("Reset the dashboard view?")) window.location.reload(); }}>
           <svg width="19" height="19" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M7 15.5H3.5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1H7M11.5 12l3-3-3-3M14.5 9H7" /></svg>
         </button>
       </div>
-      <div className="sb-avatar" title="Carlic">C</div>
     </aside>
   );
 }
@@ -139,6 +133,9 @@ function MainBar({ title, sub, snap, now, back }) {
       <div className="ah-left">
         {back && <button className="ah-back" onClick={() => nav(back)}>←</button>}
         <div>
+          <div className="ah-brand" onClick={() => nav("#/")} title="OP × ZisK">
+            <span className="wm-op">OP</span><span className="wm-x">×</span><span className="wm-zisk">ZisK</span>
+          </div>
           <h1 className="ah-title">{title}</h1>
           {sub && <div className="ah-sub">{sub}</div>}
         </div>
@@ -224,7 +221,7 @@ function CurrentJob({ job }) {
 
 // ======================= shared bits =======================
 function StatusTag({ status }) {
-  const label = { proven: "Proven", failed: "Failed", proving: "Proving", queued: "Queued" }[status];
+  const label = { proven: "Proven", failed: "Failed", proving: "Proving", queued: "Queued", agg: "Aggregated" }[status] || status;
   return <span className={"tag " + status}><span className="td"></span>{label}</span>;
 }
 function MiniStrip({ job }) {
@@ -232,32 +229,43 @@ function MiniStrip({ job }) {
 }
 
 // ======================= QUEUE =======================
-const QUEUE_PAGE = 5;
-function Queue({ queue }) {
+const QUEUE_PAGE = 6;
+function Queue({ queue, perAgg }) {
   const [shown, setShown] = useState(QUEUE_PAGE);
+  const N = perAgg || 2;
   const visible = queue.slice(0, shown);
   const more = queue.length - visible.length;
   return (
     <div className="panel-b">
-      <div className="sec"><span className="sec-t">Queue</span><span className="sec-c">{queue.length}</span><span className="rule"></span><span className="sec-c">witness-cached</span></div>
+      <div className="sec"><span className="sec-t">Queue</span><span className="sec-c">{queue.length}</span><span className="rule"></span><span className="sec-c">witness-cached · range proofs</span></div>
       {queue.length === 0 && <div className="empty">Queue empty</div>}
-      {visible.map((job, i) => (
-        <div key={job.id} className="qrow" onClick={() => nav(`#/block/${job.id}`)}>
-          <span className="qpos">{pad(i + 1)}</span>
-          <div>
-            <div className="q-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</div>
-            <div className="q-sub">{job.id} · {job.blocks} blk · {job.host}</div>
-          </div>
-          <div className="q-right"><StatusTag status="queued" /></div>
-        </div>
-      ))}
-      {more > 0 && (
-        <div className="qmore" onClick={() => setShown(shown + QUEUE_PAGE)}>Load {Math.min(QUEUE_PAGE, more)} more · {more} hidden</div>
-      )}
-      {shown > QUEUE_PAGE && (
-        <div className="qmore" onClick={() => setShown(QUEUE_PAGE)}>Collapse</div>
-      )}
-      <div className="qdepth"><span className="ql">Backlog depth</span><span className="qv">{queue.reduce((s, j) => s + j.blocks, 0)} blocks witness-cached</span></div>
+      {visible.map((job, i) => {
+        // after every N range proofs an aggregation fires — show the divider + which ranges it spans
+        const aggBoundary = (i + 1) % N === 0;
+        const grp = visible.slice(i - N + 1, i + 1);
+        return (
+          <React.Fragment key={job.id}>
+            <div className="qrow" onClick={() => nav(`#/block/${job.id}`)}>
+              <span className="qpos">{pad(i + 1)}</span>
+              <div>
+                <div className="q-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</div>
+                <div className="q-sub">range proof · {job.blocks} blk</div>
+              </div>
+              <div className="q-right"><span className="qtag range">range</span></div>
+            </div>
+            {aggBoundary && grp.length === N && (
+              <div className="qagg">
+                <span className="qagg-i">⊕</span>
+                <span className="qagg-t">PLONK agg · {N} ranges · {grp.reduce((s, g) => s + g.blocks, 0)} blocks</span>
+                <span className="qagg-r">{fmtBlock(grp[0].rangeStart)} → {fmtBlock(grp[grp.length - 1].rangeEnd)}</span>
+              </div>
+            )}
+          </React.Fragment>
+        );
+      })}
+      {more > 0 && <div className="qmore" onClick={() => setShown(shown + QUEUE_PAGE)}>Load {Math.min(QUEUE_PAGE, more)} more · {more} hidden</div>}
+      {shown > QUEUE_PAGE && <div className="qmore" onClick={() => setShown(QUEUE_PAGE)}>Collapse</div>}
+      <div className="qdepth"><span className="ql">Backlog depth</span><span className="qv">{queue.length} ranges · {queue.reduce((s, j) => s + j.blocks, 0)} blocks witness-cached</span></div>
     </div>
   );
 }
@@ -353,11 +361,37 @@ function Dashboard({ snap, now }) {
           <div className="sec"><span className="sec-t">Proof-time distribution</span><span className="rule"></span><span className="sec-c">{snap.stats.dist ? snap.stats.dist.total : 0} proven</span></div>
           <Histogram dist={snap.stats.dist} />
         </div>
-        {live ? <Cluster cluster={snap.cluster} /> : <Queue queue={snap.queue} />}
+        {live ? <Cluster cluster={snap.cluster} /> : <Queue queue={snap.queue} perAgg={snap.metrics && snap.metrics.rangesPerAgg} />}
       </div>
+      <AggList aggs={snap.aggregations} />
       {live && snap.history.length === 0
         ? <div className="panel-b"><div className="sec"><span className="sec-t">Proving stream</span><span className="rule"></span></div><div className="empty">Coordinator 1.0.0-beta exposes aggregate metrics only — no per-range rows. Per-job stream needs the /api/v1 build or Postgres history.</div></div>
         : <StreamTable history={snap.history} />}
+    </div>
+  );
+}
+
+// ======================= AGGREGATIONS =======================
+function AggList({ aggs }) {
+  const [shown, setShown] = useState(5);
+  if (!aggs || !aggs.length) return null;
+  const visible = aggs.slice(0, shown);
+  const more = aggs.length - visible.length;
+  return (
+    <div className="panel-b" style={{ marginTop: 24 }}>
+      <div className="sec"><span className="sec-t">Aggregations</span><span className="sec-c">{aggs.length}</span><span className="rule"></span><span className="sec-c">PLONK · batches of range proofs</span></div>
+      {visible.map((a) => (
+        <div key={a.id} className="qrow" onClick={() => nav(`#/block/${a.id}`)}>
+          <span className="qpos agg">⊕</span>
+          <div>
+            <div className="q-range">{fmtBlock(a.rangeStart)}<span className="arw">→</span>{fmtBlock(a.rangeEnd)}</div>
+            <div className="q-sub">{a.ranges} ranges · {a.blocks} blocks{a.snarkMs ? ` · SNARK ${fmtSecs(a.snarkMs)}` : ""}</div>
+          </div>
+          <div className="q-right"><span className="qtag agg">agg</span><span className="q-eta">{fmtDur(a.elapsedMs)}</span></div>
+        </div>
+      ))}
+      {more > 0 && <div className="qmore" onClick={() => setShown(shown + 8)}>Load {Math.min(8, more)} more · {more} hidden</div>}
+      {shown > 5 && <div className="qmore" onClick={() => setShown(5)}>Collapse</div>}
     </div>
   );
 }
@@ -417,6 +451,30 @@ function BlocksPage({ snap, now }) {
 }
 
 // ======================= BLOCK DETAIL =======================
+// explains what the proof actually proves — range semantics vs aggregation semantics
+function ProofExplainer({ job }) {
+  const isAgg = job.kind === "agg";
+  const s = job.rangeStart, e = job.rangeEnd, n = job.blocks;
+  return (
+    <div className="panel-b explainer" style={{ marginTop: 22 }}>
+      <div className="sec"><span className="sec-t">What this proves</span><span className="rule"></span>
+        <span className="sec-c">{isAgg ? "PLONK aggregation" : "OP validity proof · derivation + execution"}</span></div>
+      {isAgg ? (
+        <div className="xp">
+          <p>Proves a batch of range proofs composes into one PLONK proof: every range proof verifies, consecutive roots chain (<code>range[i].l2PostRoot == range[i+1].l2PreRoot</code>), the rollup config is consistent, the range VK is correct, and each <code>l1Head</code> is included in the supplied L1 header chain up to the checkpoint.</p>
+          <div className="xfields"><span>aggregates</span><b>{n} blocks · {fmtBlock(s)} → {fmtBlock(e)}</b></div>
+        </div>
+      ) : (
+        <div className="xp">
+          <p>Monolithic OP validity proof for the contiguous interval <code>({fmtBlock(s)}, {fmtBlock(e)}]</code> — proves blocks <b>{fmtBlock(s + 1)}–{fmtBlock(e)}</b> ({n} block{n > 1 ? "s" : ""}). Block <b>{fmtBlock(s)}</b> is the pre-state anchor (<code>l2PreRoot</code>), not itself proved.</p>
+          <p>Inside ZisK, Kona runs the OP derivation pipeline (L1 data · batches · blobs · preimages) → canonical L2 payloads, then executes them under OP-EVM rules with ZisK precompile routing. The output root computed at block {fmtBlock(e)} must equal the claimed <code>l2PostRoot</code>.</p>
+          <div className="xfields"><span>publicly commits</span><b>l1Head · l2PreRoot · l2PostRoot · l2BlockNumber · rollupConfigHash</b></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BlockDetail({ job, snap, now }) {
   if (!job) {
     return (
@@ -426,31 +484,49 @@ function BlockDetail({ job, snap, now }) {
       </div>
     );
   }
+  const isAgg = job.kind === "agg";
   const done = job.status === "proven" || job.status === "failed";
+  const proving = job.status === "proving";
   const witnessMs = job.stages.find((s) => s.key === "witness")?.durationMs || 0;
+  const snarkMs = job.stages.find((s) => s.key === "snark")?.durationMs || job.snarkMs || 0;
   const totalMs = jobTotalMs(job);
   const proveMs = Math.max(0, totalMs - witnessMs);   // all cargo-zisk phases combined
+  // all phases done but proof not yet written -> final save/verify
+  const finalizing = proving && job.stageIndex >= job.stages.length;
+  // unavailable-until-proven fields read "pending" while proving, not a bare dash
+  const pend = (v, fmt) => v > 0 ? fmt(v) : (proving ? <span className="mv-pending">pending</span> : "—");
   return (
     <div className="view">
-      <MainBar title={`${fmtBlock(job.rangeStart)} → ${fmtBlock(job.rangeEnd)}`} sub={`${job.id} · ${snap.chain}`} snap={snap} now={now} back="#/blocks" />
+      <MainBar title={`${fmtBlock(job.rangeStart)} → ${fmtBlock(job.rangeEnd)}`} sub={isAgg ? `PLONK agg · ${job.ranges} ranges · ${snap.chain}` : `proves ${fmtBlock(job.rangeStart + 1)}–${fmtBlock(job.rangeEnd)} · ${snap.chain}`} snap={snap} now={now} back={isAgg ? "#/" : "#/blocks"} />
 
       <div className="det-head">
-        <StatusTag status={job.status} />
-        <span className="det-meta"><b>{job.blocks}</b> block{job.blocks > 1 ? "s" : ""}</span>
+        <StatusTag status={isAgg ? "agg" : job.status} />
+        <span className="det-meta"><b>{job.blocks}</b> blocks</span>
+        {isAgg && <span className="det-meta"><b>{job.ranges}</b> ranges</span>}
         <span className="det-meta">prover <b>{job.host}</b></span>
-        <span className="det-meta">{done ? `finished ${timeAgo(job.finishedAt)}` : job.status === "proving" ? "in progress" : "queued"}</span>
+        <span className="det-meta">{done ? `finished ${timeAgo(job.finishedAt)}` : finalizing ? "finalizing — writing proof" : proving ? "in progress" : "queued"}</span>
       </div>
 
-      <div className="mgrid det-grid">
-        <div className="mcell"><div className="ml">Total proof time</div><div className="mv">{fmtDur(job.elapsedMs)}</div></div>
-        <div className="mcell"><div className="ml">Witness gen</div><div className="mv">{fmtDur(witnessMs)}</div></div>
-        <div className="mcell"><div className="ml">Range prove</div><div className="mv">{fmtDur(proveMs)}</div></div>
-        <div className="mcell"><div className="ml">Proof size</div><div className="mv">{job.proofBytes > 0 ? fmtBytes(job.proofBytes) : "—"}</div></div>
-        <div className="mcell"><div className="ml">Gas proven</div><div className="mv">{job.gas > 0 ? fmtCompact(job.gas) : "—"}</div></div>
-        <div className="mcell"><div className="ml">Proof instances</div><div className="mv">{job.instances > 0 ? fmtNum(job.instances) : "—"}</div></div>
-        <div className="mcell"><div className="ml">Transactions</div><div className="mv">{job.txs > 0 ? fmtNum(job.txs) : "—"}</div></div>
-        <div className="mcell"><div className="ml">Blocks</div><div className="mv">{job.blocks}</div></div>
-      </div>
+      {isAgg ? (
+        <div className="mgrid det-grid">
+          <div className="mcell"><div className="ml">Total agg time</div><div className="mv">{fmtDur(job.elapsedMs)}</div></div>
+          <div className="mcell"><div className="ml">SNARK wrap</div><div className="mv">{snarkMs > 0 ? fmtSecs(snarkMs) : "—"}</div></div>
+          <div className="mcell"><div className="ml">Ranges</div><div className="mv">{job.ranges}</div></div>
+          <div className="mcell"><div className="ml">Blocks</div><div className="mv">{job.blocks}</div></div>
+          <div className="mcell"><div className="ml">Type</div><div className="mv" style={{ fontSize: 13 }}>PLONK aggregation</div></div>
+        </div>
+      ) : (
+        <div className="mgrid det-grid">
+          <div className="mcell"><div className="ml">Total proof time</div><div className="mv">{fmtDur(job.elapsedMs)}</div></div>
+          <div className="mcell"><div className="ml">Witness gen</div><div className="mv">{fmtDur(witnessMs)}</div></div>
+          <div className="mcell"><div className="ml">Range prove</div><div className="mv">{fmtDur(proveMs)}</div></div>
+          <div className="mcell"><div className="ml">Proof size</div><div className="mv">{pend(job.proofBytes, fmtBytes)}</div></div>
+          <div className="mcell"><div className="ml">Gas proven</div><div className="mv">{pend(job.gas, fmtCompact)}</div></div>
+          <div className="mcell"><div className="ml">Proof instances</div><div className="mv">{pend(job.instances, fmtNum)}</div></div>
+          <div className="mcell"><div className="ml">Transactions</div><div className="mv">{pend(job.txs, fmtNum)}</div></div>
+          <div className="mcell"><div className="ml">Blocks</div><div className="mv">{job.blocks}</div></div>
+        </div>
+      )}
 
       <div className="panel-b" style={{ marginTop: 22 }}>
         <div className="sec"><span className="sec-t">Pipeline timeline</span><span className="rule"></span><span className="sec-c">{job.stageIndex} / {job.stages.length} stages</span></div>
@@ -480,6 +556,8 @@ function BlockDetail({ job, snap, now }) {
           })}
         </div>
       </div>
+
+      <ProofExplainer job={job} />
 
       <div className="txrow" style={{ marginTop: 22 }}>
         <span className="txl">Settlement</span>
@@ -530,7 +608,8 @@ function App() {
 
   const findJob = (id) => {
     if (snap.active && snap.active.id === id) return snap.active;
-    return snap.queue.find((j) => j.id === id) || snap.history.find((j) => j.id === id) || null;
+    return snap.queue.find((j) => j.id === id) || snap.history.find((j) => j.id === id)
+      || (snap.aggregations || []).find((j) => j.id === id) || null;
   };
 
   let content;

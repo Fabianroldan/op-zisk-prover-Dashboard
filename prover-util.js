@@ -60,12 +60,13 @@
   }
   function jobTotalMs(job) { return job.stages.reduce((s, x) => s + x.durationMs, 0); }
 
-  const SHORT = { witness: "Witness", setup: "Setup", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", prove: "Range STARK" };
-  const FULL = { witness: "Witness gen", setup: "Prover setup", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", prove: "Range STARK proof" };
+  const SHORT = { witness: "Witness", setup: "Setup", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", snark: "SNARK", prove: "Range STARK" };
+  const FULL = { witness: "Witness gen", setup: "Prover setup", execute: "Execute", contrib: "Contributions", inner: "Inner proofs", snark: "SNARK wrap", prove: "Range STARK proof" };
   const SUBS = {
     witness: "kona host · preimage gen",
     setup: "proofman · const pols/trees + ROM",
     execute: "cargo-zisk · ASM execute",
+    snark: "cargo-zisk · PLONK wrapper SNARK",
     contrib: "cargo-zisk · calculating contributions",
     inner: "cargo-zisk · inner STARK proofs",
     prove: "cargo-zisk · range STARK (VadcopFinalMinimal)",
