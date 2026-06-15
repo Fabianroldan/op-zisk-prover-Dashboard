@@ -278,9 +278,13 @@ function activeJob(avgPh) {
   const estTotal = doneMs + stages.filter(x => x.status !== "done").reduce((a, x) => a + Math.max(x.elapsedMs || 0, x.expectedMs || 0), 0);
   const etaMs = Math.max(0, estTotal - elapsedMs);
   const progress = estTotal ? Math.min(99, Math.round((elapsedMs / estTotal) * 100)) : 0;
+  // STALL: active phase running far past its historical average (GPU likely hung).
+  const activeExp = ai >= 0 ? (stages[ai].expectedMs || 0) : 0;
+  const stalled = activeElapsed > Math.max(activeExp * 4, 900000);  // >4x expected or >15min
   return { id:"B-"+s, rangeStart:s, rangeEnd:e, blocks:e-s, host:HOST, status:"proving",
     stageIndex: stageIndexOf(stages), stages, gas:0, txs:0, instances:0, main:0, proofBytes:0, txHash:null,
-    startedAt:null, finishedAt:null, elapsedMs, estimatedTotalMs: estTotal, etaMs, progress };
+    startedAt:null, finishedAt:null, elapsedMs, estimatedTotalMs: estTotal, etaMs, progress,
+    stalled, stallPhase: stalled && ai >= 0 ? stages[ai].key : null };
 }
 
 async function cycle() {
@@ -295,10 +299,13 @@ async function cycle() {
   metrics.backlogRanges = queue.length;
   metrics.backlogBlocks = queue.reduce((a,j)=>a+j.blocks,0);
   history.forEach(j=>{delete j._mt;delete j._dur});
+  // GPU utilization (stall corroboration + display)
+  const gpu = sh("nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits").split("\n").map(x=>parseInt(x)).filter(x=>!isNaN(x));
+  const gpuUtil = gpu.length ? Math.round(gpu.reduce((a,b)=>a+b,0)/gpu.length) : null;
   const snap = { connected: status==="proving", chain: CHAINS[cid]||(cid?"chain "+cid:"unknown"),
     l1Head: l1?parseInt(l1,16):0, l2Head: l2?parseInt(l2,16):0, l2ProvenFrontier: frontier,
-    provingStatus: status, active, queue, history, metrics, recentDurations, failedCount: 0,
-    source: `${HOST} — ${status}; ${history.length} range proof(s) (no agg/settle). frontier ${frontier??"none"}, chain head ${l2?parseInt(l2,16):"?"}` };
+    provingStatus: status, active, queue, history, metrics, recentDurations, failedCount: 0, gpuUtil,
+    source: `${history.length} ranges proven · frontier ${frontier??"—"} · chain head ${l2?parseInt(l2,16):"?"}` };
   fs.writeFileSync(OUT, JSON.stringify(snap));
   const a = active ? `${active.id}@${active.stages[active.stageIndex]?active.stages[active.stageIndex].key:"done"}` : "idle";
   process.stdout.write(`\r[vast] ${status} active=${a} proven=${history.length} head=${l2?parseInt(l2,16):"?"}   `);

@@ -64,10 +64,10 @@ function Timeline({ job, showAxis = true }) {
       <div className="tl-labels" style={{ gridTemplateColumns: cols }}>
         {job.stages.map((st, i) => {
           const cls = cellState(st, i);
-          const wide = !timed || (sizeMs(st) / total) > 0.055;
+          const wide = !timed || (sizeMs(st) / total) > 0.08;  // hide cramped labels entirely (no overlap)
           return (
             <div key={st.key} className={"tl-lab " + cls}>
-              <span className="ix">{_pad(i + 1)}</span>
+              {wide && <span className="ix">{_pad(i + 1)}</span>}
               {wide && <span className="nm">{_SHORT[st.key]}</span>}
             </div>
           );

@@ -46,14 +46,12 @@ function Sidebar({ route, snap, onNav }) {
     { key: "dashboard", label: "Live", hash: "#/", icon: <path d="M2 9h3l2-5 3 11 2-6h4" /> },
     { key: "blocks", label: "Blocks", hash: "#/blocks", icon: <g><rect x="2.5" y="2.5" width="13" height="4" rx="1.4" /><rect x="2.5" y="7.5" width="13" height="4" rx="1.4" /><rect x="2.5" y="12.5" width="13" height="2.8" rx="1.4" /></g> },
   ];
-  const sun = Array.from({ length: 12 }).map((_, i) => {
-    const ang = (i * 30) * Math.PI / 180, c = 12;
-    return <line key={i} x1={c + 3.6 * Math.cos(ang)} y1={c + 3.6 * Math.sin(ang)} x2={c + 9.2 * Math.cos(ang)} y2={c + 9.2 * Math.sin(ang)} stroke="var(--accent)" strokeWidth="2.1" strokeLinecap="round" />;
-  });
   return (
     <aside className="sidebar">
-      <div className="sb-brand" onClick={() => onNav("#/")} title="OP-ZiSK Prover">
-        <span className="brand-mark"><svg width="26" height="26" viewBox="0 0 24 24">{sun}</svg></span>
+      <div className="sb-brand wordmark" onClick={() => onNav("#/")} title="OP × ZisK">
+        <span className="wm-op">OP</span>
+        <span className="wm-x">×</span>
+        <span className="wm-zisk">ZisK</span>
       </div>
       <div className="sb-rail">
         {items.map((it) => (
@@ -193,21 +191,23 @@ function CurrentJob({ job }) {
         <div className="hero-top">
           <div>
             <div className="hero-id">
-              <span className="live-tag"><span className="ld"></span>Proving</span>
+              {job.stalled
+                ? <span className="live-tag stalled"><span className="ld"></span>Stalled</span>
+                : <span className="live-tag"><span className="ld"></span>Proving</span>}
               <span className="jid">{job.host}</span>
-              {job.note === "rpc-throttled" && <span className="flag">⚠ RPC throttled · witness slow</span>}
+              {job.stalled && <span className="flag">⚠ no GPU progress · {fmtDur(active.elapsedMs)} in {FULL[active.key]}</span>}
             </div>
             <h1 className="hero-range">{fmtBlock(job.rangeStart)}<span className="arw">→</span>{fmtBlock(job.rangeEnd)}</h1>
             <div className="hero-meta">
               <span className="mi"><b>{job.blocks}</b> block{job.blocks > 1 ? "s" : ""}</span>
               {job.proofBytes > 0 && <span className="mi"><b>{fmtBytes(job.proofBytes)}</b> proof</span>}
-              <span className="mi">range proof (no agg/settle)</span>
+              <span className="mi">range proof</span>
             </div>
           </div>
           <div className="hero-timers">
-            <div className="tmr big"><span className="tl">Elapsed</span><span className="tv">{fmtClock(job.elapsedMs)}</span></div>
-            <div className="tmr"><span className="tl">ETA</span><span className="tv eta">{fmtClock(job.etaMs)}</span></div>
-            <div className="tmr"><span className="tl">Progress</span><span className="tv pct">{Math.round(pct)}%</span></div>
+            <div className="tmr big"><span className="tl">Elapsed</span><span className="tv">{fmtDur(job.elapsedMs)}</span></div>
+            <div className="tmr"><span className="tl">ETA</span><span className="tv eta">{job.stalled ? "—" : fmtDur(job.etaMs)}</span></div>
+            <div className="tmr"><span className="tl">Progress</span><span className={"tv pct" + (job.stalled ? " stall" : "")}>{job.stalled ? "STALL" : Math.round(pct) + "%"}</span></div>
           </div>
         </div>
         <Timeline job={job} />

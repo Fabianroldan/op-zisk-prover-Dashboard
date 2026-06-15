@@ -117,6 +117,16 @@ body {
   display: flex; align-items: center; justify-content: center;
   background: var(--accent-soft);
 }
+/* OP × ZisK wordmark */
+.sb-brand.wordmark { display: flex; align-items: center; gap: 5px; flex-direction: row; padding: 4px 2px; }
+.wm-op { font-weight: 800; font-size: 15px; letter-spacing: -0.02em; color: var(--ink); }
+.wm-x { font-size: 11px; color: var(--t3); font-weight: 500; }
+.wm-zisk { font-weight: 800; font-size: 15px; letter-spacing: -0.02em;
+  background: linear-gradient(95deg, #7DF59A, #29C463); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* stalled states */
+.live-tag.stalled { background: rgba(229,72,77,0.14); color: var(--coral); }
+.live-tag.stalled .ld { background: var(--coral); }
+.tv.pct.stall { color: var(--coral); font-size: 0.78em; letter-spacing: 0.04em; }
 .sb-item {
   width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center;
   color: var(--t3); cursor: pointer; transition: background .14s, color .14s; text-decoration: none;
